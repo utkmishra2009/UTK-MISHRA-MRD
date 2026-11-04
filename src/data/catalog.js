@@ -2,90 +2,127 @@
 
 export const HOSPITAL = { name: 'Arogya Demo Multispeciality Hospital', city: 'Mumbai', short: 'ADMH' }
 
+// User groups. Role ids are kept stable; labels reflect the optimized MRD operating model.
 export const ROLES = [
-  { id: 'nurse', label: 'Nursing / Ward Staff', short: 'Nursing', user: 'Sr. Anjali Pawar', title: 'Staff Nurse · Ward 7B & 8A', color: '#2f7d6d',
-    blurb: 'Hands over discharged patients’ records to MRD.' },
-  { id: 'receiving', label: 'MRD Receiving Staff', short: 'Receiving', user: 'Ramesh Kadam', title: 'MRD Receiving Counter', color: '#3b6ea8',
-    blurb: 'Receives physical files and electronic documents.' },
-  { id: 'scanning', label: 'Scanning / Digitization', short: 'Scanning', user: 'Pooja Shinde', title: 'Scanning Operator', color: '#7a5aa6',
-    blurb: 'Scans paper documents and tags them to the patient.' },
-  { id: 'qc', label: 'MRD Quality Checker', short: 'QC', user: 'Farhan Shaikh', title: 'QC Reviewer', color: '#b06a1f',
-    blurb: 'Checks every scanned page before it becomes part of the record.' },
-  { id: 'executive', label: 'MRD Executive / Records Manager', short: 'MRD Executive', user: 'Meera Iyer', title: 'MRD Executive & Coder', color: '#1d5c8c',
-    blurb: 'Codes, checks completeness, stores files and fulfils requests.' },
-  { id: 'requester', label: 'Requesting Department', short: 'Department', user: 'Dr. Vikram Rao', title: 'Consultant · Cardiology', dept: 'Cardiology', color: '#9c3d54',
-    blurb: 'Requests, accepts and returns patient files.' },
-  { id: 'supervisor', label: 'MRD Supervisor / Admin', short: 'Supervisor', user: 'Dr. Sunita Deshpande', title: 'MRD Manager', color: '#b8913f',
-    blurb: 'Monitors TATs, escalations, exceptions and performance.' },
+  { id: 'nurse', label: 'Ward Nurse', short: 'Nursing', user: 'Sr. Anjali Pawar', color: '#2f7d6d',
+    blurb: 'Prepares discharged patients’ files and sends them to MRD; fixes nursing deficiencies.' },
+  { id: 'receiving', label: 'MRD Receiving Staff', short: 'Receiving', user: 'Ramesh Kadam', color: '#3b6ea8',
+    blurb: 'Acknowledges files at the MRD counter, or returns them to the ward with a reason.' },
+  { id: 'qc', label: 'MRD Reviewer (QC)', short: 'Reviewer', user: 'Farhan Shaikh', color: '#b06a1f',
+    blurb: 'Reviews each record, raises deficiencies, verifies corrections and accepts the record.' },
+  { id: 'requester', label: 'Doctor / Clinical Department', short: 'Doctor', user: 'Dr. Vikram Rao', color: '#9c3d54',
+    blurb: 'Resolves clinical deficiencies assigned to them and requests patient files.' },
+  { id: 'scanning', label: 'Scanning & Digitization', short: 'Scanning', user: 'Pooja Shinde', color: '#7a5aa6',
+    blurb: 'Scans or uploads paper documents and maps them to the patient’s record.' },
+  { id: 'executive', label: 'MRD Records Officer', short: 'Records Officer', user: 'Meera Iyer', color: '#1d5c8c',
+    blurb: 'Accepts and archives records, codes diagnoses, issues and receives back files.' },
+  { id: 'supervisor', label: 'MRD Supervisor / Administrator', short: 'Supervisor', user: 'Dr. Sunita Deshpande', color: '#b8913f',
+    blurb: 'Watches workload and TAT breaches, approves exceptions and waivers.' },
 ]
 export const roleById = (id) => ROLES.find((r) => r.id === id)
 
+const WARDS_ANJALI = ['Ward 7B Cardiac', 'Ward 8A Medical', 'ICU-2', 'Ward 3A Paeds', 'Day Care Oncology']
+const WARDS_KAVITA = ['Ward 4B Maternity', 'Ward 5A Surgical', 'Ward 6C Ortho']
+export const WARDS = [...WARDS_ANJALI, ...WARDS_KAVITA]
+
 // Individual demo users inside each user group (fictitious)
 export const USERS = [
-  { id: 'u-anjali', role: 'nurse', name: 'Sr. Anjali Pawar', title: 'Staff Nurse · Ward 7B Cardiac & 8A Medical' },
-  { id: 'u-kavita', role: 'nurse', name: 'Sr. Kavita Jadhav', title: 'Staff Nurse · Ward 4B Maternity & 5A Surgical' },
+  { id: 'u-anjali', role: 'nurse', name: 'Sr. Anjali Pawar', title: 'Staff Nurse · Ward 7B, 8A, ICU-2, 3A, Day Care', wards: WARDS_ANJALI },
+  { id: 'u-kavita', role: 'nurse', name: 'Sr. Kavita Jadhav', title: 'Staff Nurse · Ward 4B, 5A, 6C', wards: WARDS_KAVITA },
   { id: 'u-ramesh', role: 'receiving', name: 'Ramesh Kadam', title: 'MRD Receiving Clerk · day shift' },
   { id: 'u-sneha', role: 'receiving', name: 'Sneha Patil', title: 'MRD Receiving Clerk · evening shift' },
-  { id: 'u-pooja', role: 'scanning', name: 'Pooja Shinde', title: 'Scanning Operator · Station 1' },
-  { id: 'u-amit', role: 'scanning', name: 'Amit Gawde', title: 'Scanning Operator · Station 2' },
-  { id: 'u-farhan', role: 'qc', name: 'Farhan Shaikh', title: 'QC Reviewer' },
-  { id: 'u-rina', role: 'qc', name: "Rina D'Costa", title: 'Senior QC Reviewer' },
-  { id: 'u-meera', role: 'executive', name: 'Meera Iyer', title: 'MRD Executive & Coder' },
-  { id: 'u-suresh', role: 'executive', name: 'Suresh Nair', title: 'Records Executive · Request Desk' },
+  { id: 'u-farhan', role: 'qc', name: 'Farhan Shaikh', title: 'MRD Reviewer' },
+  { id: 'u-rina', role: 'qc', name: "Rina D'Costa", title: 'Senior MRD Reviewer' },
   { id: 'u-vikram', role: 'requester', name: 'Dr. Vikram Rao', title: 'Consultant · Cardiology', dept: 'Cardiology' },
+  { id: 'u-arvind', role: 'requester', name: 'Dr. Arvind Menon', title: 'Consultant · Internal Medicine', dept: 'Internal Medicine' },
+  { id: 'u-sameer', role: 'requester', name: 'Dr. Sameer Joshi', title: 'Consultant · General Surgery', dept: 'General Surgery' },
   { id: 'u-prakash', role: 'requester', name: 'Dr. Prakash Hegde', title: 'Consultant · Nephrology', dept: 'Nephrology' },
   { id: 'u-rekha', role: 'requester', name: 'Dr. Rekha Pillai', title: 'Consultant · Obstetrics & Gynaecology', dept: 'Obstetrics & Gynaecology' },
   { id: 'u-tpa', role: 'requester', name: 'Anita Sawant', title: 'Executive · Insurance / TPA Desk', dept: 'Insurance / TPA Desk' },
+  { id: 'u-pooja', role: 'scanning', name: 'Pooja Shinde', title: 'Scanning Operator · Station 1' },
+  { id: 'u-amit', role: 'scanning', name: 'Amit Gawde', title: 'Scanning Operator · Station 2' },
+  { id: 'u-meera', role: 'executive', name: 'Meera Iyer', title: 'MRD Records Officer & Coder' },
+  { id: 'u-suresh', role: 'executive', name: 'Suresh Nair', title: 'Records Officer · File issue desk' },
   { id: 'u-sunita', role: 'supervisor', name: 'Dr. Sunita Deshpande', title: 'MRD Manager' },
   { id: 'u-ashok', role: 'supervisor', name: 'Dr. Ashok Bhandari', title: 'Medical Superintendent' },
 ]
 export const userById = (id) => USERS.find((u) => u.id === id)
 export const defaultUser = (role) => USERS.find((u) => u.role === role)
 export const currentUser = (s) => userById(s.userId) || defaultUser(s.role)
+export const userByName = (name) => USERS.find((u) => u.name === name)
+
+// ── Record workflow: one status per encounter, changed only by workflow actions
+export const WF = {
+  ADMITTED: 'Admitted',
+  NOT_SENT: 'Not Sent',
+  RETURNED: 'Returned to Ward',
+  AWAIT_RECEIPT: 'Awaiting Receipt',
+  AWAIT_REVIEW: 'Awaiting Review',
+  CORRECTIONS: 'Corrections Required',
+  AWAIT_VERIFY: 'Awaiting Verification',
+  READY: 'Ready for Acceptance',
+  ARCHIVED: 'Accepted & Archived',
+}
+// Visual progress tracker (returns and corrections are shown as loops in the timeline)
+export const LIFECYCLE = ['Discharged', 'Sent to MRD', 'Received', 'Reviewed', 'Corrections', 'Verified', 'Accepted', 'Archived']
+export const WF_STEP = {
+  [WF.ADMITTED]: -1, [WF.NOT_SENT]: 0, [WF.RETURNED]: 0, [WF.AWAIT_RECEIPT]: 1, [WF.AWAIT_REVIEW]: 2,
+  [WF.CORRECTIONS]: 4, [WF.AWAIT_VERIFY]: 5, [WF.READY]: 6, [WF.ARCHIVED]: 8,
+}
+
+export const DEF_CATEGORIES = [
+  { id: 'missing', label: 'Missing document', icon: 'FileX' },
+  { id: 'incomplete', label: 'Incomplete documentation', icon: 'FileWarning' },
+  { id: 'signature', label: 'Missing signature / authorization', icon: 'Pencil' },
+  { id: 'incorrect', label: 'Incorrect / wrong document', icon: 'CircleX' },
+  { id: 'clarification', label: 'Clinical clarification', icon: 'MessageSquare' },
+]
+export const defCat = (id) => DEF_CATEGORIES.find((c) => c.id === id) || DEF_CATEGORIES[0]
 
 // "Things you can do" — free-exploration shortcuts per user group
 export const ROLE_TASKS = {
-  nurse: [['Hand over a discharged patient’s records', 'handover', {}], ['Simulate a new admission or discharge', 'handover', { tab: 'admitted' }], ['Track what you have sent to MRD', 'handover', { tab: 'sent' }], ['Look up any patient record', 'search', {}]],
-  receiving: [['Verify & accept a physical file', 'receiving', {}], ['Start document intake for a received file', 'intake', {}], ['Watch electronic documents arrive', 'receiving', { tab: 'electronic' }], ['Resolve unmatched / unclassified documents', 'receiving', { tab: 'exceptions' }]],
-  scanning: [['Scan or upload a received file, tag & map pages', 'intake', {}], ['Upload an outside / loose document', 'intake', { loose: 1 }], ['Quick-scan a single expected document', 'scanning', {}], ['Fix pages rejected by QC', 'scanning', { tab: 'rework' }]],
-  qc: [['Review scanned pages & approve / reject', 'qc', {}], ['Look up a patient record', 'search', {}]],
-  executive: [['Run completeness checks & ICD coding', 'coding', {}], ['Assign rack/shelf positions', 'storage', {}], ['Fulfil, issue or release requests', 'desk', {}], ['Inspect returned files', 'desk', { tab: 'returns' }], ['Add a document through intake', 'intake', {}]],
-  requester: [['Request a complete file or a document', 'myrequests', { new: 1 }], ['Accept, report a problem or return a file', 'myrequests', {}], ['Search patient records', 'search', {}]],
-  supervisor: [['Watch TAT breaches & resolve escalations', 'escalations', {}], ['Change TAT rules & move the clock', 'settings', {}], ['Waive a deficiency / reopen a record', 'coding', {}], ['Review the audit trail', 'audit', {}]],
+  nurse: [['Prepare & send a discharged patient’s file', 'handover', {}], ['Fix a deficiency assigned to your ward', 'deficiencies', {}], ['See files returned by MRD', 'handover', { tab: 'notsent', status: 'Returned to Ward' }], ['Simulate a new admission or discharge', 'handover', { tab: 'admitted' }]],
+  receiving: [['Acknowledge files waiting at the counter', 'receiving', { tab: 'receipt' }], ['Return a wrong / incomplete file to the ward', 'receiving', { tab: 'receipt' }], ['Start scanning for a received file', 'intake', {}], ['Track any patient record', 'tracking', {}]],
+  qc: [['Review a received record', 'receiving', { tab: 'review' }], ['Verify submitted corrections', 'deficiencies', { tab: 'verify' }], ['Accept & archive ready records', 'receiving', { tab: 'ready' }], ['Check scanned pages', 'qc', {}]],
+  requester: [['Resolve deficiencies assigned to you', 'deficiencies', {}], ['Request a patient file', 'myrequests', { new: 1 }], ['Track a patient record', 'tracking', {}]],
+  scanning: [['Scan, tag & map a received file', 'intake', {}], ['Upload an outside / loose document', 'intake', { loose: 1 }], ['Fix pages rejected in scan QC', 'scanning', { tab: 'rework' }]],
+  executive: [['Accept & archive ready records', 'receiving', { tab: 'ready' }], ['Fulfil file requests', 'desk', {}], ['See the archive rack map', 'storage', {}], ['Inspect returned files', 'desk', { tab: 'returns' }]],
+  supervisor: [['See overdue work & escalations', 'escalations', {}], ['Waive a deficiency that cannot be fixed', 'deficiencies', { tab: 'all' }], ['Change TAT rules & move the clock', 'settings', {}], ['Review the audit log', 'audit', {}]],
 }
 
-// Navigation & page access per role
+// Navigation: six main screens + secondary tools
 export const PAGES = {
-  dashboard: { label: 'Dashboard', icon: 'LayoutDashboard' },
-  handover: { label: 'Discharge Handover', icon: 'ClipboardList', hint: 'Ward → MRD' },
-  intake: { label: 'Document Intake', icon: 'FileScan' },
-  receiving: { label: 'MRD Receiving', icon: 'Inbox' },
-  scanning: { label: 'Quick Scan & Rework', icon: 'ScanLine' },
-  qc: { label: 'Quality Check', icon: 'ShieldCheck' },
-  coding: { label: 'Coding & Completeness', icon: 'FileCheck2' },
-  storage: { label: 'File Storage', icon: 'Archive' },
-  desk: { label: 'Request Desk', icon: 'Send' },
-  myrequests: { label: 'My Requests', icon: 'FolderSearch' },
+  dashboard: { label: 'MRD Dashboard', icon: 'LayoutDashboard', main: true },
+  handover: { label: 'Nurse Handover', icon: 'ClipboardList', main: true },
+  receiving: { label: 'Receiving & QC', icon: 'Inbox', main: true },
+  deficiencies: { label: 'Clinical Deficiencies', icon: 'FileWarning', main: true },
+  intake: { label: 'Scanning & Documents', icon: 'FileScan', main: true },
+  tracking: { label: 'Record Tracking', icon: 'Route', main: true },
+  scanning: { label: 'Scanning & Documents', icon: 'FileScan', parent: 'intake' },
+  qc: { label: 'Scanning & Documents', icon: 'FileScan', parent: 'intake' },
+  desk: { label: 'File Requests', icon: 'Send' },
+  myrequests: { label: 'My File Requests', icon: 'Send' },
+  storage: { label: 'Archive Map', icon: 'Archive' },
   escalations: { label: 'TAT & Escalations', icon: 'Siren' },
-  search: { label: 'Patient Records', icon: 'Search' },
-  audit: { label: 'Audit Trail', icon: 'History' },
+  audit: { label: 'Audit Log', icon: 'History' },
   settings: { label: 'Demo Settings', icon: 'Settings2' },
   scenarios: { label: 'Guided Demo', icon: 'CirclePlay' },
 }
 
 export const ROLE_PAGES = {
-  nurse: ['dashboard', 'handover', 'search'],
-  receiving: ['dashboard', 'receiving', 'intake', 'search'],
-  scanning: ['dashboard', 'intake', 'scanning', 'search'],
-  qc: ['dashboard', 'qc', 'search'],
-  executive: ['dashboard', 'receiving', 'intake', 'coding', 'storage', 'desk', 'search'],
-  requester: ['dashboard', 'myrequests', 'search'],
-  supervisor: ['dashboard', 'escalations', 'receiving', 'intake', 'scanning', 'qc', 'coding', 'storage', 'desk', 'search', 'audit', 'settings'],
+  nurse: ['dashboard', 'handover', 'deficiencies', 'tracking'],
+  receiving: ['dashboard', 'receiving', 'intake', 'tracking'],
+  qc: ['dashboard', 'receiving', 'deficiencies', 'intake', 'tracking'],
+  requester: ['dashboard', 'deficiencies', 'tracking', 'myrequests'],
+  scanning: ['dashboard', 'intake', 'tracking'],
+  executive: ['dashboard', 'receiving', 'deficiencies', 'intake', 'tracking', 'desk', 'storage'],
+  supervisor: ['dashboard', 'handover', 'receiving', 'deficiencies', 'intake', 'tracking', 'desk', 'storage', 'escalations', 'audit', 'settings'],
 }
-export const ALWAYS_PAGES = ['scenarios', 'patient', 'settings', 'start']
+export const ALWAYS_PAGES = ['scenarios', 'settings', 'start']
+const ALIAS = { scanning: 'intake', qc: 'intake', patient: 'tracking', search: 'tracking' }
 
 export const canAccess = (role, page) =>
-  ROLE_PAGES[role]?.includes(page) || ALWAYS_PAGES.includes(page)
+  ROLE_PAGES[role]?.includes(page) || ROLE_PAGES[role]?.includes(ALIAS[page]) || ALWAYS_PAGES.includes(page)
 
 // Document types. folder = classification tag (PRD minimum taxonomy).
 export const DOC_TYPES = [
@@ -175,8 +212,9 @@ export const DEFAULT_CONFIG = {
     receipt: 4, // hours for MRD to receive a submitted handover
     scanning: 24, // hours from receipt to scan
     qc: 12, // hours from scan to QC decision
-    coding: 72, // hours from QC pass to coding complete
-    deficiency: 48, // default deficiency due period
+    review: 24, // hours from MRD receipt to review completed
+    verify: 24, // hours for MRD to verify a submitted correction
+    deficiency: 48, // default time given to fix a deficiency
     returnPeriod: 48, // default physical file loan period
     accessWindow: 48, // electronic access window
     request: {

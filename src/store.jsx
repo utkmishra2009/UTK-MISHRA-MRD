@@ -1,9 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { buildSeed } from './data/seed'
-import { docType, roleById, DOC_TYPES, currentUser, defaultUser, userById } from './data/catalog'
-import { H, computeAlerts, docsOf, encOf, fileOf, openMandatoryDefs, checklist, reqDue, patientOf } from './lib/logic'
+import { docType, DOC_TYPES, currentUser, defaultUser, userById, WF, checklistTypes, defCat } from './data/catalog'
+import { H, computeAlerts, encOf, fileOf, checklist, reqDue, patientOf, openDefs, submittedDefs, activeDefs, defAssigneeLabel, defMatchesUser, digitalOf } from './lib/logic'
 
-const KEY = 'mrd-demo-state-v4'
+const KEY = 'mrd-demo-state-v5'
 const Ctx = createContext(null)
 
 function load() {
@@ -11,7 +11,7 @@ function load() {
     const raw = localStorage.getItem(KEY)
     if (raw) {
       const s = JSON.parse(raw)
-      if (s && s.version === 4) return s
+      if (s && s.version === 5) return s
     }
   } catch { /* storage unavailable – fall back to seed */ }
   return buildSeed()
@@ -49,23 +49,32 @@ function apply(state, { type, p = {} }) {
   const at = s.now
   const user = currentUser(s)
   const me = user.name
-  const log = (action, e, ref = '', remarks = '') =>
-    s.audit.push({ id: `A-${++s.seq}`, at: s.now, by: me, role: s.role, action, uhid: e?.uhid || '', ip: e?.ip || '', ref, remarks })
+  const log = (action, e, ref = '', remarks = '', extra = {}) =>
+    s.audit.push({ id: `A-${++s.seq}`, at: s.now, by: me, role: s.role, action, uhid: e?.uhid || '', ip: e?.ip || '', ref, remarks, ...extra })
   const E = (ip) => encOf(s, ip) || fail('Encounter not found')
   const D = (id) => s.documents.find((d) => d.id === id) || fail('Document not found')
   const R = (id) => s.requests.find((r) => r.id === id) || fail('Request not found')
   const newDocId = () => `D-${(++s.seq + 5000).toString()}`
-  const maybeReadyForCoding = (e) => {
-    const scans = docsOf(s, e.ip).filter((d) => d.kind === 'scanned')
-    if (e.handover?.status === 'Received' && scans.length && scans.every((d) => d.status === 'Approved') && e.record.status === 'Open') {
-      e.record = { status: 'Pending Review', since: s.now }
-      log('All scanned documents QC approved → moved to coding & completeness', e, e.ip)
-    }
+  const DF = (id) => s.deficiencies.find((d) => d.id === id) || fail('Deficiency not found')
+  const ownerLabel = (e, st) => ({ [WF.CORRECTIONS]: [...new Set(openDefs(s, e.ip).map(defAssigneeLabel))].join(', '), [WF.AWAIT_VERIFY]: 'MRD Reviewer', [WF.READY]: 'MRD Records Officer', [WF.AWAIT_REVIEW]: 'MRD Reviewer' }[st] || '')
+  // Every workflow status change is written to the record history with previous → new status
+  const setStatus = (e, to, action, ref = '', remarks = '', assigned = '', by = me, role = s.role) => {
+    const from = e.status
+    e.status = to
+    e.statusAt = at
+    s.audit.push({ id: `A-${++s.seq}`, at, by, role, action, uhid: e.uhid, ip: e.ip, ref, remarks, from, to, assigned })
   }
-  const recheck = (e) => {
-    if (e.record.status === 'Incomplete' && !openMandatoryDefs(s, e).length) e.record.status = 'Pending Review'
+  // After deficiency activity, move the record to the status that matches the facts
+  const recompute = (e) => {
+    if (![WF.AWAIT_REVIEW, WF.CORRECTIONS, WF.AWAIT_VERIFY, WF.READY].includes(e.status)) return
+    if (!e.review?.completedAt) return
+    const open = openDefs(s, e.ip).length
+    const sub = submittedDefs(s, e.ip).length
+    const to = open ? WF.CORRECTIONS : sub ? WF.AWAIT_VERIFY : WF.READY
+    if (to === e.status) return
+    const msg = { [WF.CORRECTIONS]: 'Corrections required', [WF.AWAIT_VERIFY]: 'All corrections submitted – awaiting MRD verification', [WF.READY]: 'All deficiencies closed – ready for acceptance' }[to]
+    setStatus(e, to, msg, e.ip, '', ownerLabel(e, to), 'System (workflow rule)', 'system')
   }
-
   switch (type) {
     case 'SET_ROLE': s.role = p.role; if (userById(s.userId)?.role !== p.role) s.userId = defaultUser(p.role).id; break
     case 'SET_USER': s.userId = p.userId; s.role = userById(p.userId).role; break
@@ -79,8 +88,8 @@ function apply(state, { type, p = {} }) {
       const uhid = `UH-26-00${5000 + k}`
       const ip = `IP/26/1${(600 + k).toString().padStart(4, '0')}`
       s.patients.push({ uhid, name: `${F[k % F.length]} ${L[(k * 3) % L.length]}`, age: 25 + (k * 7) % 50, sex: k % 2 ? 'M' : 'F', phone: '—' })
-      s.encounters.push({ ip, uhid, dept, ward, bed: `${ward.match(/\d+/)?.[0] || 1}${(k % 20).toString().padStart(2, '0')}`, consultant: cons, procedure: proc, dischargeType: 'Normal', diagnosis: dx, admitted: at - 30 * H, discharged: null, handover: null, record: { status: 'Open' }, coding: { status: 'Pending', codes: [] }, fileId: null })
-      s.audit.push({ id: `A-${++s.seq}`, at, by: 'HIS (ADT feed – simulated)', role: 'system', action: 'Patient admitted', uhid, ip, ref: ip, remarks: `${ward} (simulated new admission)` })
+      s.encounters.push({ ip, uhid, dept, ward, bed: `${ward.match(/\d+/)?.[0] || 1}${(k % 20).toString().padStart(2, '0')}`, consultant: cons, procedure: proc, dischargeType: 'Normal', diagnosis: dx, admitted: at - 30 * H, discharged: null, handover: null, record: { status: 'Open' }, coding: { status: 'Pending', codes: [] }, fileId: null, status: WF.ADMITTED, statusAt: at, handovers: [], review: null })
+      s.audit.push({ id: `A-${++s.seq}`, at, by: 'HIS (ADT feed – simulated)', role: 'system', action: 'Patient admitted', uhid, ip, ref: ip, remarks: `${ward} (simulated new admission)`, to: WF.ADMITTED })
       s.lastRef = ip
       break
     }
@@ -100,58 +109,80 @@ function apply(state, { type, p = {} }) {
     }
     case 'GUIDE': s.guide = p.guide; break
 
-    // ── Ward
+    // ── Ward: discharge & handover preparation
     case 'SIM_DISCHARGE': {
       const e = E(p.ip)
+      if (e.discharged) fail('Patient is already discharged')
       e.discharged = at
       e.dischargeType = p.dischargeType || 'Normal'
       e.record = { status: 'Open' }
       ;['DS', 'IA', 'LAB'].forEach((tp) => s.documents.push({ id: newDocId(), ip: e.ip, uhid: e.uhid, type: tp, source: docType(tp).src, kind: 'electronic', status: 'Filed', intake: 'Matched', pages: [{ n: 1, rot: 0 }, ...(tp === 'DS' ? [{ n: 2, rot: 0 }] : [])], docDate: at, receivedAt: at, by: `${docType(tp).src} interface`, version: 1, qc: [] }))
-      s.audit.push({ id: `A-${++s.seq}`, at, by: 'HIS (ADT feed – simulated)', role: 'system', action: 'Discharge event received', uhid: e.uhid, ip: e.ip, ref: e.ip, remarks: `${e.dischargeType} discharge; EMR/LIS documents auto-filed` })
+      setStatus(e, WF.NOT_SENT, 'Discharge event received', e.ip, `${e.dischargeType} discharge · EMR/LIS documents auto-filed`, `${e.ward} nursing`, 'HIS (ADT feed – simulated)', 'system')
+      break
+    }
+    case 'SAVE_PREP': {
+      const e = E(p.ip)
+      if (![WF.NOT_SENT, WF.RETURNED].includes(e.status)) fail('This record has already been sent to MRD')
+      e.prep = { ...p.prep, savedAt: at, savedBy: me }
+      log('Handover checklist draft saved', e, e.ip, `${Object.values(p.prep.items || {}).filter((x) => x.present).length} item(s) ticked`)
       break
     }
     case 'SUBMIT_HANDOVER': {
       const e = E(p.ip)
-      if (e.handover) fail('Records already handed over for this admission')
-      if (!p.items.length && !p.electronic.length) fail('Select at least one physical or electronic item to hand over')
-      if (p.missing.length && !p.remarks?.trim()) fail('Please add a remark explaining the missing documents')
+      if (![WF.NOT_SENT, WF.RETURNED].includes(e.status)) fail('This record has already been sent to MRD')
+      if (!p.items.length && !p.electronic?.length) fail('Select at least one document to hand over')
+      const required = checklistTypes(e).filter((t) => docType(t).src === 'Physical')
+      const missing = required.filter((t) => !p.items.some((i) => i.type === t))
+      if (missing.length && !p.exception) fail(`${missing.length} required document(s) are missing. Add them, or send with an authorized exception.`)
+      if (p.exception && (!p.exception.reason?.trim() || !p.exception.authorizedBy?.trim())) fail('An exception needs a reason and the name of the person who authorized it')
+      if (p.exception && !p.exception.confirmed) fail('Confirm that the exception was authorized before sending')
+      const version = (e.handovers?.length || 0) + (e.handover ? 2 : 1)
+      if (e.handover) e.handovers = [...(e.handovers || []), e.handover]
       const ref = `HO-26-${++s.seq + 1900}`
-      e.handover = { ref, at, by: me, items: p.items, electronic: p.electronic, missing: p.missing, remarks: p.remarks, status: 'Submitted', receivedAt: null, receivedBy: null, check: null, carrier: p.carrier }
-      if (p.items.length && !e.fileId) s.files.push({ id: `PF-${e.ip.split('/').pop()}-V1`, ip: e.ip, uhid: e.uhid, volume: 1, status: 'In Transit', location: null, custodian: `In transit – ${p.carrier || 'ward attendant'}`, issue: null, history: [] })
-      e.fileId = `PF-${e.ip.split('/').pop()}-V1`
-      log('Records handed over to MRD', e, ref, `${p.items.length} physical item(s), ${p.electronic.length} electronic${p.missing.length ? `; missing: ${p.missing.map((m) => docType(m).name).join(', ')}` : ''}`)
+      e.handover = { ref, version, at, by: me, items: p.items, electronic: p.electronic || [], missing, remarks: p.remarks || '', exception: p.exception || null, carrier: p.carrier || 'Ward attendant', status: 'Submitted', receivedAt: null, receivedBy: null, check: null }
+      if (!e.fileId) {
+        e.fileId = `PF-${e.ip.split('/').pop()}-V1`
+        if (!fileOf(s, e.fileId)) s.files.push({ id: e.fileId, ip: e.ip, uhid: e.uhid, volume: 1, status: 'In Transit', location: null, custodian: 'In transit to MRD', issue: null, history: [] })
+      }
+      const f = fileOf(s, e.fileId)
+      Object.assign(f, { status: 'In Transit', custodian: 'In transit to MRD' })
+      f.history.push({ at, by: me, action: `Sent to MRD with ${p.carrier || 'ward attendant'} (${ref})` })
+      e.prep = null
+      setStatus(e, WF.AWAIT_RECEIPT, version > 1 ? `Handover resent to MRD (v${version})` : 'Handover sent to MRD', ref, `${p.items.length} physical document(s)${missing.length ? ` · missing: ${missing.map((m) => docType(m).name).join(', ')}` : ''}${p.exception ? ` · exception authorized by ${p.exception.authorizedBy}: ${p.exception.reason}` : ''}${p.remarks ? ` · ${p.remarks}` : ''}`, 'MRD Receiving')
       s.lastRef = ref
       break
     }
 
-    // ── Receiving
+    // ── MRD receiving
     case 'RECEIVE_HANDOVER': {
       const e = E(p.ip)
-      if (e.handover?.status !== 'Submitted') fail('Handover is not awaiting receipt')
-      if (!p.identity) fail('Confirm patient identity (name, UHID, IP number on file cover) before accepting')
+      if (e.status !== WF.AWAIT_RECEIPT) fail('This record is not waiting for receipt')
+      if (!p.identity) fail('Confirm patient identity (name, UHID and IP number on the file cover) before acknowledging receipt')
       const notReceived = e.handover.items.filter((it) => !p.received.includes(it.type)).map((it) => it.type)
-      e.handover.status = 'Received'
-      e.handover.receivedAt = at
-      e.handover.receivedBy = me
-      e.handover.check = { identity: true, inventory: notReceived.length === 0, condition: p.condition, remarks: p.remarks, notReceived }
+      Object.assign(e.handover, { status: 'Received', receivedAt: at, receivedBy: me, check: { identity: true, inventory: notReceived.length === 0, condition: p.condition, remarks: p.remarks, notReceived } })
       const f = fileOf(s, e.fileId)
-      if (f) { f.status = 'In Processing'; f.custodian = 'MRD Processing Bay'; f.history.push({ at, by: me, action: 'Received at MRD counter' }) }
+      if (f) { f.status = 'In Processing'; f.custodian = 'MRD review desk'; f.history.push({ at, by: me, action: 'Received at MRD counter' }) }
       e.handover.items.filter((it) => p.received.includes(it.type)).forEach((it) => {
+        if (s.documents.some((d) => d.ip === e.ip && d.type === it.type && d.kind === 'scanned' && d.status !== 'Entered in Error')) return
         s.documents.push({ id: newDocId(), ip: e.ip, uhid: e.uhid, type: it.type, source: 'Physical', kind: 'scanned', status: 'Awaiting Scan', pages: [], expectedPages: it.pages, docDate: e.discharged, receivedAt: null, by: '', version: 1, qc: [], fileId: e.fileId })
       })
-      log('Physical file received & verified', e, e.handover.ref, `Condition: ${p.condition}${notReceived.length ? `; NOT received: ${notReceived.map((m) => docType(m).name).join(', ')}` : '; inventory matched'}${p.remarks ? `; ${p.remarks}` : ''}`)
+      e.review = null
+      setStatus(e, WF.AWAIT_REVIEW, 'Receipt acknowledged at MRD counter', e.handover.ref, `Condition: ${p.condition}${notReceived.length ? ` · NOT received: ${notReceived.map((m) => docType(m).name).join(', ')}` : ' · inventory matched'}${p.remarks ? ` · ${p.remarks}` : ''}`, 'MRD Reviewer')
       if (notReceived.length || p.condition !== 'Good') {
-        s.escalations.push({ id: `ES-${++s.seq}`, key: `MAN:${s.seq}`, auto: false, kind: p.condition !== 'Good' ? 'Damaged file at receipt' : 'Handover inventory mismatch', ref: e.handover.ref, uhid: e.uhid, ip: e.ip, page: 'receiving', reason: p.remarks || 'Items listed in handover not found in file', responsible: e.ward + ' nursing', raisedAt: at, raisedBy: me, status: 'Open', notes: [] })
+        e.escalated = { at, by: me, reason: p.remarks || 'Handover inventory mismatch' }
+        s.escalations.push({ id: `ES-${++s.seq}`, key: `MAN:${s.seq}`, auto: false, kind: p.condition !== 'Good' ? 'Damaged file at receipt' : 'Handover inventory mismatch', ref: e.handover.ref, uhid: e.uhid, ip: e.ip, page: 'receiving', reason: p.remarks || 'Items listed in handover not found in file', responsible: `${e.ward} nursing`, raisedAt: at, raisedBy: me, status: 'Open', notes: [] })
       }
       break
     }
     case 'RETURN_HANDOVER': {
       const e = E(p.ip)
+      if (![WF.AWAIT_RECEIPT, WF.AWAIT_REVIEW].includes(e.status)) fail('Only records at receipt or review can be returned to the ward')
       if (!p.reason?.trim()) fail('Reason is mandatory when returning a file to the ward')
-      log('Handover rejected & returned to ward', e, e.handover.ref, p.reason)
-      e.handover = null
+      Object.assign(e.handover, { status: 'Returned', returnedAt: at, returnedBy: me, returnReason: `${p.category ? `${p.category}: ` : ''}${p.reason}` })
       const f = fileOf(s, e.fileId)
-      if (f) { f.status = 'With Ward'; f.custodian = e.ward }
+      if (f) { f.status = 'With Ward'; f.custodian = e.ward; f.history.push({ at, by: me, action: `Returned to ${e.ward}: ${p.reason}` }) }
+      e.review = null
+      setStatus(e, WF.RETURNED, 'Returned to ward', e.handover.ref, e.handover.returnReason, `${e.ward} nursing`)
       break
     }
     case 'SIM_ARRIVAL': {
@@ -196,18 +227,6 @@ function apply(state, { type, p = {} }) {
       d.tags = p.tags || []
       const e = E(d.ip)
       log('Document scanned & indexed', e, d.id, `${docType(d.type).name} · ${count} page(s) · source ${d.fileId || 'physical file'}`)
-      break
-    }
-    case 'UPLOAD_EXTRA': {
-      const e = E(p.ip)
-      if (!p.confirmed) fail('Please confirm patient and encounter before uploading.')
-      if (e.record.status === 'Closed') fail('Record is closed. Ask the MRD Manager to reopen it.')
-      const dup = s.documents.find((x) => x.uhid === e.uhid && x.fingerprint && x.fingerprint === p.fingerprint)
-      if (dup && !p.dupReason) fail('DUP:This file already exists for this patient. Enter a reason to continue.')
-      const d = { id: newDocId(), ip: e.ip, uhid: e.uhid, type: p.type, folder: docType(p.type).folder, source: 'Physical', kind: 'scanned', status: 'QC Pending', pages: p.uploads.map((u, i) => ({ n: i + 1, defect: null, rot: 0, mark: null, upload: u })), expectedPages: p.uploads.length, docDate: p.docDate, receivedAt: at, by: me, version: 1, qc: [], fileId: e.fileId, fingerprint: p.fingerprint, uploaded: true }
-      s.documents.push(d)
-      if (e.record.status === 'Pending Review') e.record.status = 'Open'
-      log('Document uploaded & indexed', e, d.id, `${docType(p.type).name} · ${p.uploads.length} file(s)${dup ? ` · duplicate override: ${p.dupReason}` : ''}`)
       break
     }
     case 'PAGE_FIX': {
@@ -350,57 +369,152 @@ function apply(state, { type, p = {} }) {
       d.qc.push({ at, by: me, decision: p.decision, remarks: p.remarks || '', marks: p.marks, version: d.version })
       const e = E(d.ip)
       log(p.decision === 'Approved' ? 'QC approved' : 'QC rejected – sent for rescan', e, d.id, p.remarks || 'All pages clear')
-      if (p.decision === 'Approved') maybeReadyForCoding(e)
       break
     }
     case 'ESCALATE': {
       if (!p.reason?.trim()) fail('Please describe why this is being escalated')
       const e = p.ip ? encOf(s, p.ip) : null
+      if (e) e.escalated = { at, by: me, reason: p.reason }
       s.escalations.push({ id: `ES-${++s.seq}`, key: `MAN:${s.seq}`, auto: false, kind: p.kind, ref: p.ref, uhid: e?.uhid, ip: e?.ip, page: p.page, reason: p.reason, responsible: 'MRD Supervisor', raisedAt: at, raisedBy: me, status: 'Open', notes: [] })
-      log(`Escalated to supervisor – ${p.kind}`, e, p.ref, p.reason)
+      log(`Escalated to supervisor – ${p.kind}`, e, p.ref, p.reason, { assigned: 'MRD Supervisor', from: e?.status, to: e?.status })
       break
     }
 
-    // ── Completeness & coding
-    case 'RAISE_DEF': {
+    // ── MRD review (document-by-document)
+    case 'REVIEW_ITEM': {
       const e = E(p.ip)
-      if (!p.responsible?.trim()) fail('Responsible user is mandatory')
-      const d = { id: `DF-${++s.seq}`, ip: e.ip, uhid: e.uhid, type: p.type, item: docType(p.type).name, category: docType(p.type).folder, responsible: p.responsible, dueAt: at + (p.dueH || s.config.tat.deficiency) * H, raisedAt: at, raisedBy: me, status: 'Open', remarks: p.remarks || '', history: [{ at, by: me, action: 'Raised' }] }
-      s.deficiencies.push(d)
-      e.record.status = 'Incomplete'
-      log('Deficiency raised', e, d.id, `${d.item} → ${d.responsible}`)
+      if (e.status !== WF.AWAIT_REVIEW) fail('Review is only possible while the record is awaiting review')
+      if (!e.review) { e.review = { items: {}, startedAt: at, by: me }; log('Review started', e, e.ip, '', { assigned: me }) }
+      const types = p.types || [p.type]
+      types.forEach((t) => { if (p.verdict) e.review.items[t] = p.verdict; else delete e.review.items[t] })
       break
     }
-    case 'RESPOND_DEF': {
-      const d = s.deficiencies.find((x) => x.id === p.id)
+    case 'COMPLETE_REVIEW': {
+      const e = E(p.ip)
+      if (e.status !== WF.AWAIT_REVIEW) fail('This record is not awaiting review')
+      const rows = checklist(s, e)
+      const unchecked = rows.filter((r) => !e.review?.items?.[r.type])
+      if (unchecked.length) fail(`${unchecked.length} checklist item(s) not yet checked: ${unchecked.map((r) => r.name).join(', ')}`)
+      const issuesNoDef = rows.filter((r) => e.review.items[r.type] === 'issue' && !r.defs.length)
+      if (issuesNoDef.length) fail(`Raise a deficiency for: ${issuesNoDef.map((r) => r.name).join(', ')}`)
+      e.review.completedAt = at
+      e.review.completedBy = me
+      const open = openDefs(s, e.ip).length
+      const sub = submittedDefs(s, e.ip).length
+      const to = open ? WF.CORRECTIONS : sub ? WF.AWAIT_VERIFY : WF.READY
+      setStatus(e, to, open ? 'Review completed – corrections required' : sub ? 'Review completed – corrections awaiting verification' : 'Review completed – no deficiencies', e.ip, `${rows.length} item(s) checked · ${activeDefs(s, e.ip).length} active deficiency(ies)`, ownerLabel(e, to))
+      break
+    }
+    case 'SCAN_ITEM': {
+      const e = E(p.ip)
+      if (e.record?.status === 'Closed') fail('Record is closed. Ask the MRD Manager to reopen it.')
+      const dt = docType(p.type)
+      const n = Math.max(1, Number(p.pages) || dt.pages || 1)
+      const pages = p.uploads?.length ? p.uploads.map((u, i) => ({ n: i + 1, defect: null, rot: 0, mark: null, upload: u })) : Array.from({ length: n }, (_, i) => ({ n: i + 1, defect: p.defect && Number(p.defectPage || 1) === i + 1 ? p.defect : null, rot: 0, mark: null }))
+      let d = s.documents.find((x) => x.ip === e.ip && x.type === p.type && ['Awaiting Scan', 'QC Rejected'].includes(x.status))
+      if (d) Object.assign(d, { pages, status: 'QC Pending', receivedAt: at, by: me, version: d.status === 'QC Rejected' ? d.version + 1 : d.version, folder: p.folder || dt.folder, tags: p.tags || d.tags || [] })
+      else {
+        d = { id: newDocId(), ip: e.ip, uhid: e.uhid, type: p.type, folder: p.folder || dt.folder, tags: p.tags || [], source: p.uploads?.length ? 'Upload' : 'Physical', kind: 'scanned', status: 'QC Pending', pages, expectedPages: pages.length, docDate: e.discharged || at, receivedAt: at, by: me, version: 1, qc: [], fileId: e.fileId, uploaded: !!p.uploads?.length }
+        s.documents.push(d)
+      }
+      log(p.uploads?.length ? 'Document uploaded & tagged' : 'Document scanned & tagged', e, d.id, `${dt.name} · ${pages.length} page(s)${p.context ? ` · during ${p.context}` : ''}`)
+      s.lastRef = d.id
+      break
+    }
+    case 'VERIFY_SCAN': {
+      const d = D(p.id)
+      if (d.status !== 'QC Pending') fail('This scan is not waiting for verification')
+      if (!p.ok && !p.remarks?.trim()) fail('Say what is wrong with the scan')
+      d.pages.forEach((pg) => (pg.mark = p.ok ? 'Clear' : pg.defect ? 'Unclear' : 'Clear'))
+      d.status = p.ok ? 'Approved' : 'QC Rejected'
+      d.qc.push({ at, by: me, decision: p.ok ? 'Approved' : 'Rejected', remarks: p.remarks || 'All pages clear', version: d.version })
+      log(p.ok ? 'Scan verified' : 'Scan rejected – rescan required', E(d.ip), d.id, p.remarks || `${docType(d.type).name} · all pages clear`)
+      break
+    }
+
+    // ── Clinical deficiencies: raise → correct → verify (each with its own history)
+    case 'RAISE_DEF': {
+      const e = E(p.ip)
+      if (![WF.AWAIT_REVIEW, WF.CORRECTIONS, WF.AWAIT_VERIFY, WF.READY].includes(e.status)) fail('Deficiencies can be raised only after MRD has received the record')
+      if (!p.title?.trim()) fail('Give the deficiency a short title')
+      if (!p.assignee || (p.assignee.kind === 'user' && !p.assignee.name) || (p.assignee.kind === 'ward' && !p.assignee.ward)) fail('Choose who must fix this deficiency')
+      if (p.docType && activeDefs(s, e.ip).some((d) => d.docType === p.docType && d.category === p.category)) fail('An active deficiency of this type already exists for this document')
+      const id = `DF-${++s.seq + 200}`
+      const assigned = p.assignee.kind === 'ward' ? `${p.assignee.ward} nursing` : p.assignee.name
+      const d = { id, ip: e.ip, uhid: e.uhid, category: p.category, docType: p.docType || null, title: p.title.trim(), description: p.description || '', assignee: p.assignee, raisedBy: me, raisedAt: at, dueAt: at + (Number(p.dueH) || s.config.tat.deficiency) * H, status: 'Open', statusAt: at, reopened: 0, corrections: [], history: [{ at, by: me, from: null, to: 'Open', action: 'Deficiency raised', remarks: p.description || p.title, assigned }] }
+      s.deficiencies.push(d)
+      if (p.docType && e.status === WF.AWAIT_REVIEW) { e.review = e.review || { items: {}, startedAt: at, by: me }; e.review.items[p.docType] = 'issue' }
+      log('Deficiency raised', e, id, `${defCat(p.category).label}: ${d.title}`, { assigned })
+      recompute(e)
+      s.lastRef = id
+      break
+    }
+    case 'SUBMIT_CORRECTION': {
+      const d = DF(p.id)
+      if (d.status !== 'Open') fail('This deficiency is not open for correction')
+      if (!defMatchesUser(d, user)) fail(`This deficiency is assigned to ${defAssigneeLabel(d)}. Switch user to resolve it.`)
+      if (!p.note || p.note.trim().length < 5) fail('Describe what you corrected (at least a few words)')
       const e = E(d.ip)
-      d.status = 'Responded'
-      d.history.push({ at, by: d.responsible, action: 'Responded – document provided' })
-      s.documents.push({ id: newDocId(), ip: e.ip, uhid: e.uhid, type: d.type, folder: docType(d.type).folder, source: 'Physical', kind: 'scanned', status: 'Approved', pages: Array.from({ length: docType(d.type).pages || 1 }, (_, i) => ({ n: i + 1, rot: 0, mark: 'Clear' })), docDate: at, receivedAt: at, by: 'Pooja Shinde', version: 1, qc: [{ at, by: 'Farhan Shaikh', decision: 'Approved', remarks: 'Deficiency document – fast-track QC' }], fileId: e.fileId, viaDeficiency: d.id })
-      s.audit.push({ id: `A-${++s.seq}`, at, by: d.responsible, role: 'clinician', action: 'Deficiency responded – document supplied (simulated)', uhid: e.uhid, ip: e.ip, ref: d.id, remarks: d.item })
+      let docId = null
+      if (p.attach && d.docType) {
+        const dt = docType(d.docType)
+        const doc = { id: newDocId(), ip: e.ip, uhid: e.uhid, type: d.docType, folder: dt.folder, tags: ['Late entry', 'Signed'], source: p.attach === 'upload' ? 'Upload' : 'Physical', kind: 'scanned', status: 'QC Pending', pages: Array.from({ length: dt.pages || 1 }, (_, i) => ({ n: i + 1, defect: null, rot: 0, mark: null })), expectedPages: dt.pages || 1, docDate: at, receivedAt: at, by: me, version: 1, qc: [], fileId: e.fileId, viaDeficiency: d.id }
+        s.documents.push(doc)
+        docId = doc.id
+      }
+      d.corrections.push({ at, by: me, note: p.note.trim(), docId, method: p.attach || (d.category === 'signature' ? 'esign' : 'note') })
+      d.history.push({ at, by: me, from: 'Open', to: 'Correction Submitted', action: 'Correction submitted', remarks: p.note.trim() })
+      d.status = 'Correction Submitted'; d.statusAt = at
+      log('Correction submitted', e, d.id, p.note.trim(), { assigned: 'MRD Reviewer' })
+      recompute(e)
       break
     }
     case 'VERIFY_DEF': {
-      const d = s.deficiencies.find((x) => x.id === p.id)
+      const d = DF(p.id)
+      if (d.status !== 'Correction Submitted') fail('There is no submitted correction to verify')
+      if (!p.ok && !p.remarks?.trim()) fail('Give a reason for rejecting the correction – the responsible person will see it')
       const e = E(d.ip)
-      if (p.ok) { d.status = 'Resolved'; d.history.push({ at, by: me, action: 'Verified & resolved' }) }
-      else {
-        if (!p.comment?.trim()) fail('Comment is mandatory when reopening a deficiency')
-        d.status = 'Open'; d.history.push({ at, by: me, action: `Reopened: ${p.comment}` })
-        s.documents.filter((x) => x.viaDeficiency === d.id).forEach((x) => (x.status = 'Entered in Error'))
+      const last = d.corrections.at(-1)
+      const doc = last?.docId && s.documents.find((x) => x.id === last.docId)
+      if (p.ok) {
+        d.status = 'Verified'; d.statusAt = at; d.verifiedBy = me; d.verifiedAt = at
+        if (doc) { doc.status = 'Approved'; doc.qc.push({ at, by: me, decision: 'Approved', remarks: 'Verified with deficiency correction', version: doc.version }) }
+        if (d.docType && e.review?.items) e.review.items[d.docType] = 'ok'
+        d.history.push({ at, by: me, from: 'Correction Submitted', to: 'Verified', action: 'Correction verified', remarks: p.remarks || '' })
+        log('Correction verified', e, d.id, p.remarks || d.title)
+      } else {
+        d.status = 'Open'; d.statusAt = at; d.reopened = (d.reopened || 0) + 1; d.dueAt = at + s.config.tat.deficiency * H
+        if (doc) { doc.status = 'QC Rejected'; doc.qc.push({ at, by: me, decision: 'Rejected', remarks: p.remarks, version: doc.version }) }
+        last.rejected = { at, by: me, reason: p.remarks }
+        d.history.push({ at, by: me, from: 'Correction Submitted', to: 'Open', action: 'Correction rejected – reopened', remarks: p.remarks, assigned: defAssigneeLabel(d) })
+        log('Correction rejected – reopened', e, d.id, p.remarks, { assigned: defAssigneeLabel(d) })
       }
-      log(p.ok ? 'Deficiency resolved' : 'Deficiency reopened', e, d.id, p.comment || d.item)
-      recheck(e)
+      recompute(e)
+      break
+    }
+    case 'REOPEN_DEF': {
+      const d = DF(p.id)
+      if (d.status !== 'Verified') fail('Only verified deficiencies can be reopened')
+      if (!p.reason?.trim()) fail('Reason is mandatory to reopen a deficiency')
+      const e = E(d.ip)
+      if (e.status === WF.ARCHIVED) fail('Record is archived. Ask the MRD Manager to reopen the record first.')
+      d.status = 'Open'; d.statusAt = at; d.reopened = (d.reopened || 0) + 1; d.dueAt = at + s.config.tat.deficiency * H
+      d.history.push({ at, by: me, from: 'Verified', to: 'Open', action: 'Deficiency reopened', remarks: p.reason, assigned: defAssigneeLabel(d) })
+      log('Deficiency reopened', e, d.id, p.reason, { assigned: defAssigneeLabel(d) })
+      recompute(e)
       break
     }
     case 'WAIVE_DEF': {
-      const d = s.deficiencies.find((x) => x.id === p.id)
+      const d = DF(p.id)
       if (s.role !== 'supervisor') fail('Only the MRD Manager / Supervisor can waive a deficiency')
+      if (!['Open', 'Correction Submitted'].includes(d.status)) fail('Only active deficiencies can be waived')
       if (!p.reason?.trim()) fail('Waiver reason is mandatory')
-      d.status = 'Waived'; d.history.push({ at, by: me, action: `Waived: ${p.reason}` })
       const e = E(d.ip)
+      d.history.push({ at, by: me, from: d.status, to: 'Waived', action: 'Deficiency waived', remarks: p.reason })
+      d.status = 'Waived'; d.statusAt = at
+      if (d.docType && e.review?.items) e.review.items[d.docType] = 'ok'
       log('Deficiency waived', e, d.id, p.reason)
-      recheck(e)
+      recompute(e)
       break
     }
     case 'ADD_CODE': {
@@ -432,32 +546,33 @@ function apply(state, { type, p = {} }) {
       log('ICD coding completed', e, e.coding.codes.map((c) => c.code).join(', '))
       break
     }
-    case 'MARK_COMPLETE': {
+    // ── Final acceptance & archival
+    case 'ACCEPT_RECORD': {
       const e = E(p.ip)
-      const open = openMandatoryDefs(s, e)
-      if (open.length) fail(`Record cannot be closed: ${open.length} mandatory deficiencies are open.`)
-      const miss = checklist(s, e).filter((c) => c.state === 'missing' || c.state === 'processing')
-      if (miss.length) fail(`${miss.length} checklist item(s) missing – raise a deficiency or get it waived`)
-      if (e.coding.status !== 'Coded') fail('Complete ICD coding first')
-      e.record.status = 'Complete'
-      log('Record marked complete', e, e.ip)
-      break
-    }
-    case 'CLOSE_RECORD': {
-      const e = E(p.ip)
-      if (e.record.status !== 'Complete') fail('Only complete records can be closed')
-      e.record = { ...e.record, status: 'Closed', closedBy: me, closedAt: at }
+      if (e.status !== WF.READY) fail('Only records that are ready for acceptance can be accepted')
+      if (activeDefs(s, e.ip).length) fail('Record has active deficiencies')
       const f = fileOf(s, e.fileId)
-      if (f) { f.status = 'Awaiting Storage'; f.custodian = 'MRD Processing Bay' }
-      log('Record closed & locked', e, e.ip, 'File sent for storage assignment')
+      const k = (l) => `${l.room}-${l.rack}-${l.shelf}-${l.pos}`
+      if (f) {
+        if (!p.loc) fail('Choose an archive position for the physical file')
+        if (s.files.some((x) => x.id !== f.id && x.location && k(x.location) === k(p.loc))) fail('That archive position is already occupied')
+        Object.assign(f, { location: p.loc, status: 'Available', custodian: 'MRD' })
+        f.history.push({ at, by: me, action: `Archived at ${k(p.loc)}` })
+      }
+      const dg = digitalOf(s, e)
+      e.record = { ...e.record, status: 'Closed', closedBy: me, closedAt: at }
+      e.acceptance = { at, by: me, location: p.loc || null, digital: `${dg.available}/${dg.total} documents digital`, note: p.note || '' }
+      setStatus(e, WF.ARCHIVED, 'Record accepted & archived', e.fileId || e.ip, `${p.loc ? `Location ${k(p.loc)}` : 'Electronic record'} · ${dg.available}/${dg.total} documents digital${dg.pending ? ` (${dg.pending} scan pending)` : ''}${p.note ? ` · ${p.note}` : ''}`, 'MRD Archive')
       break
     }
     case 'REOPEN': {
       const e = E(p.ip)
-      if (s.role !== 'supervisor') fail('Only the MRD Manager can reopen a closed record')
+      if (s.role !== 'supervisor') fail('Only the MRD Manager can reopen an archived record')
+      if (e.status !== WF.ARCHIVED) fail('Only archived records can be reopened')
       if (!p.reason?.trim()) fail('Reason is mandatory to reopen a record')
-      e.record = { status: 'Incomplete', since: at }
-      log('Record reopened', e, e.ip, p.reason)
+      e.record = { status: 'Open' }
+      if (e.review) e.review.completedAt = null
+      setStatus(e, WF.AWAIT_REVIEW, 'Record reopened for review', e.ip, p.reason, 'MRD Reviewer')
       break
     }
 
@@ -627,7 +742,18 @@ export function StoreProvider({ children }) {
     window.scrollTo?.({ top: 0 })
   }, [run])
 
-  return <Ctx.Provider value={{ s: state, run, nav, toast, toasts }}>{children}</Ctx.Provider>
+  // Demo player support: take and restore whole-state snapshots (prevents duplicate data on restart)
+  const snapshot = useCallback(() => ref.current, [])
+  const restore = useCallback((st, patch = {}) => {
+    const next = { ...st, ...patch }
+    ref.current = next
+    setState(next)
+  }, [])
+
+  // Record lifecycle drawer, available from every screen
+  const [trackIp, setTrackIp] = useState(null)
+
+  return <Ctx.Provider value={{ s: state, run, nav, toast, toasts, snapshot, restore, trackIp, openTrack: setTrackIp }}>{children}</Ctx.Provider>
 }
 
 export const useStore = () => useContext(Ctx)

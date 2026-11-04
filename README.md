@@ -1,12 +1,13 @@
-# MRD Management System — Interactive Prototype (POC)
+# MRD Suite — HMIS-integrated Medical Records workflow (prototype v0.3)
 
-Client-facing demo of the complete medical-record lifecycle in an Indian hospital:
-discharge → ward handover → MRD receipt → scanning & indexing → QC → completeness & ICD coding →
-storage → department request → issue / acceptance → discrepancy & TAT escalation → return & re-shelving,
-with a Patient 360° view and an append-only audit trail.
+A React prototype of a Medical Records Department (MRD) module for Indian hospitals. It replaces the ward handover
+register, MRD inward register, deficiency chits, phone follow-ups and Excel trackers with one connected workflow:
 
-All patients, UHIDs, staff and the hospital ("Arogya Demo Multispeciality Hospital") are fictitious.
-HIS/ADT, EMR, LIS, RIS, scanner hardware and ICD lookup are **simulated** — nothing is integrated.
+**Discharge → Record preparation → Nurse handover → MRD receipt → Review / QC → Deficiency correction → Verification →
+Final acceptance → Archival & tracking**
+
+All patients, staff and the hospital are fictitious. HMIS/ADT, EMR, LIS, RIS, scanners and e-signatures are
+**simulated** — nothing is integrated, and data is kept only in the browser (localStorage).
 
 ## Run
 ```bash
@@ -15,60 +16,67 @@ npm run dev            # http://localhost:5173
 npm run build          # production build → dist/
 npm run build:single   # one self-contained HTML file → dist-single/index.html
 ```
-Requires Node 18+. No backend, no credentials. Demo state is saved in the browser (localStorage);
-use **Demo Settings → Reset demo data** to start over.
+Node 18+. No backend or credentials. **Demo Settings → Reset demo data** restores the seed.
 
-## Two ways to use it
-The app opens on a start screen with two options:
+## Six main screens
+| Screen | Who | What happens there |
+|---|---|---|
+| **MRD Dashboard** | everyone | Summary counts and one worklist: *My Pending Tasks*, Records Not Sent, Awaiting Receipt, Awaiting Review, Corrections Required, Awaiting Verification, Ready for Acceptance. Every row shows what is pending, who is responsible, how long it has waited, and one primary action. |
+| **Nurse Handover** | ward nurses | *Records Not Sent* / *Records Sent*, filters (UHID, IP no., name, ward, discharge date range, status). 3-step guided drawer: document checklist (paper items + electronic items already in HMIS, optional ward scan) → missing items & remarks → review & send. Incomplete files are blocked unless an **authorized exception** (reason + authorizer + confirmation) is recorded. Draft save, resend after return (versioned), printable acknowledgement slip. |
+| **MRD Receiving & QC** | receiving staff, reviewers, records officers | *Receive Record* (identity, document count, condition → acknowledge / return to ward / escalate), *Review Record* (per-document Physical / Digital / verdict, scan & scan-check inline, raise deficiencies, ICD coding, complete review), *Accept Record* (acceptance checklist + suggested archive position). |
+| **Clinical Deficiencies** | doctors, nurses, reviewers | One task per issue (missing document, incomplete documentation, missing signature, incorrect document, clinical clarification), each with owner, due time and its own history. *Resolve Issue* (note, simulated e-sign, attach corrected scan) → *Verify Correction* (accept / reject with reason → reopens) → reopen or supervisor waiver. |
+| **Scanning & Documents** | scanning, receiving, reviewers | Bulk intake (scan/upload → tag pages into documents → map to patient file → submit), quick scan & rework, page-level scan check. |
+| **Record Tracking** | everyone | Search any admission; progress tracker, four separate status dimensions, activity history with previous → new status, deficiencies, documents, handover versions, file custody. Also opens as a drawer from every screen (“Lifecycle”). |
 
-- **A · Guided demo** — 11 scenarios, each with its own seeded patient, playable in any order. A guide panel shows the
-  role you are playing, what to do, and ticks the step when it is done.
-- **B · Explore freely as a user** — pick any person from any of the 7 user groups (16 demo users) and use their screens
-  on your own. Each dashboard lists "Things you can do". Switch user any time from **Viewing as** in the top bar or
-  **Switch user / mode** in the menu. Nurses can simulate new admissions and discharges to create fresh patients.
+Tools: File Requests (issue / return physical files), Archive Map, TAT & Escalations, Audit Log, Demo Settings.
 
-The **demo clock** (+1 h / +4 h / +1 d) drives TATs, overdue flags and automatic escalations in both modes.
+## Workflow rules (implemented in `src/store.jsx`)
+- One workflow status per encounter, changed **only by actions** (send, receive, return, complete review, raise / submit /
+  verify / reject / waive deficiency, accept, reopen). Invalid transitions are refused with a clear message.
+- Status is recomputed automatically after deficiency activity: open issues → *Corrections Required*; all submitted →
+  *Awaiting Verification*; none active → *Ready for Acceptance*.
+- Every significant action is written to the record history with previous and new status, action, user, time, remarks
+  and next owner.
+- Four dimensions are tracked separately: **workflow status**, **physical file custody**, **digital copy availability**,
+  **task ownership**.
+- Encounters are never merged because they share a UHID; other admissions of the same patient are linked, not combined.
+- Final acceptance is allowed while scans are still pending (tracked separately); ICD coding is optional before acceptance.
+- In production, audit logging, access control and transition rules must be enforced by the backend, not only by this UI.
 
-## Document intake (after the physical file is received in MRD)
-**Document Intake** is a 4-step workspace used by Scanning, Receiving, MRD Executive and Supervisor:
-1. **Capture** — scan the whole received file as one batch (simulated feeder scanner), or upload files
-   (PDF/JPG/PNG/TIFF, 25 MB limit, empty-file check). Loose / outside documents start their own batch.
-2. **Tag documents** — select pages (click / Shift-click) and tag them as a document: type, classification folder,
-   tags (Original, Signed, Outside hospital, Legal/MLC…), clinical date, author, and the handover item it fulfils.
-   Expected items from the ward handover are one-click chips; blank/separator sheets can be excluded.
-3. **Map to patient file** — confirm UHID, admission and physical file (search for loose documents). Closed records are blocked.
-   A reconciliation table compares tagged documents with the handover list.
-4. **Review & submit** — untagged pages block submission; duplicates need a reason; documents go to QC and appear in Patient 360°.
-**Quick Scan & Rework** remains for scanning one expected document at a time and fixing QC rejections.
+## Guided demo (same state, same action handlers)
+Open **Guided Demo** → *Play automatically* or *Step through*. Controls: Play / Pause / Resume, Previous, Next
+(“Do it for me” when the step isn’t done yet), Restart, Exit (keep changes) or Exit & undo. Each step snapshots the state,
+so Previous / Restart rewind cleanly and replays never duplicate data; a demo whose patient has already moved on asks to
+reset first.
 
-| # | Scenario | Seed patient | Roles |
-|---|---|---|---|
-| 1 | Discharge to MRD | Rohan Kulkarni | Nursing |
-| 2 | MRD receiving & verification | Lakshmi Narayanan | Receiving |
-| 3 | Document intake: scan, tag & map | Priya Deshmukh | Scanning → QC |
-| 4 | QC failure & correction | Kiran Patil | QC → Scanning → QC |
-| 5 | Completeness & ICD coding | Mohan Verma | MRD Executive |
-| 6 | Storage & retrieval | Deepa Nair | Executive → Department → Executive |
-| 7 | Department file request | Ramesh Agarwal | Department → Executive → Department |
-| 8 | Missing/damaged file escalation | Sushila Pandey | Department → Supervisor |
-| 9 | TAT breach & escalation | Vinod Chavan | Supervisor → Executive |
-| 10 | Return & closure | Arjun Malhotra | Department → Executive |
-| 11 | Upload & map an outside document | Joseph D'Souza | Scanning |
+| # | Demo | Patient |
+|---|---|---|
+| 1 | **End-to-end: discharge to archive** — nurse sends, MRD receives, reviews & scans, raises 2 deficiencies, doctor e-signs, nurse corrects, **one correction rejected**, resubmitted, verified, accepted, lifecycle viewed | Rohan Kulkarni |
+| 2 | Incomplete file returned to ward, fixed and resent (version 2) | Lakshmi Narayanan |
+| 3 | Bulk intake: scan, tag & map a received file | Priya Deshmukh |
+| 4 | Upload & map an outside report | Joseph D'Souza |
+| 5 | Unreadable scan caught & rescanned | Kiran Patil |
+| 6 | Department requests an archived file | Ramesh Agarwal |
+| 7 | Missing pages reported & resolved | Sushila Pandey |
+| 8 | TAT breach escalates automatically | Vinod Chavan |
+| 9 | File returned & re-shelved | Arjun Malhotra |
+
+Outside the demo, pick any of 18 users in 7 groups from the start screen (or *Viewing as*) and work freely.
 
 ## Code map
 ```
-src/data/catalog.js    roles, page access, document types, checklist rules, demo ICD-10 catalogue, storage layout, default TATs
-src/data/seed.js       seeded fictitious patients/encounters/documents/files/requests at every lifecycle stage
-src/data/scenarios.js  guided scenarios with live completion checks
-src/lib/logic.js       derived lifecycle stage, checklist, file status, TAT & escalation calculation, formatting
-src/store.jsx          single state store: every workflow action, business-rule validation, audit logging, escalation sync, persistence
-src/components/        shell (nav, role switcher, demo clock, guide), UI kit, document page renderer & viewer
-src/pages/             one screen per module (Start, Dashboard, Intake, Handover, Receiving, Scanning, QC, Coding, Storage, Requests, Escalations, Patient 360, Search, Audit, Settings, Guided Demo)
+src/data/catalog.js      roles, users, screens & access, workflow statuses, deficiency categories, document types, TATs
+src/data/seed.js         fictitious encounters at every workflow status, with status histories and deficiencies
+src/data/scenarios.js    guided demos; each step has done() and auto() using the real store actions
+src/lib/logic.js         status / custody / digital / ownership model, checklist, task model, TAT alerts
+src/store.jsx            all workflow actions and validations, audit history, escalation sync, snapshots, persistence
+src/components/          Shell, UI kit, Lifecycle (tracker, dimensions, history), ReviewKit, Demo player, PrintSlip, DocPage
+src/pages/               Dashboard, Handover, Receiving, Deficiencies, Tracking, Intake/Scanning/QC, Requests, Storage, Escalations, Misc, Start
 ```
 
-## Demo assumptions (to confirm with client)
-- Physical file tracking and ICD coding are shown although the developer requirements mark them Phase 2 (OQ-11, OQ-12).
-- Completeness checklist rules (procedure, surgery, delivery, DAMA, death) are illustrative (OQ-02).
-- Scanning and QC are separate roles here; the brief PRD groups them under "MRD Operator".
-- TAT values are illustrative and editable in Demo Settings; PRD defaults kept where stated (48 h access window).
-- QC is a human decision — no automated image-quality detection. ICD suggestions are a keyword match, not clinical coding.
+## Assumptions to confirm with the hospital
+- Checklist rules (procedure → consent + operative notes; surgery → anaesthesia consent & record; delivery →
+  partograph; DAMA / death forms) are illustrative.
+- Exception approval is recorded by the nurse with the authorizer’s name; production should capture it in the
+  authorizer’s own login.
+- TAT values are illustrative and editable in Demo Settings.

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../store'
-import { docType, roleById, currentUser } from '../data/catalog'
+import { docType, currentUser } from '../data/catalog'
 import { H, fileOf, fileStatus, fmtDT, fmtShort, patientOf, encOf, reqDue, reqTat, docsOf, searchRecords, toLocalInput, fromLocalInput } from '../lib/logic'
 import { MobileBack } from '../components/ui'
 import { PageHead, Table, Badge, Tat, Mono, Empty, PatientBanner, Card, Button, Field, Icon, Hint, SearchBox, Modal, Tabs, Sim } from '../components/ui'

@@ -2,6 +2,7 @@ import { useStore } from '../store'
 import { ROLES, USERS, ROLE_TASKS, HOSPITAL } from '../data/catalog'
 import { SCENARIOS } from '../data/scenarios'
 import { Icon, Button } from '../components/ui'
+import { useDemo } from '../components/Demo'
 
 const ROLE_ICON = { nurse: 'Stethoscope', receiving: 'Inbox', scanning: 'FileScan', qc: 'ShieldCheck', executive: 'FileCheck2', requester: 'Send', supervisor: 'Siren' }
 
@@ -13,27 +14,24 @@ export default function Start() {
     run('SET_USER', { userId: u.id })
     nav('dashboard')
   }
-  const guided = (sc) => {
+  const { start } = useDemo()
+  const guided = (sc, auto) => {
     run('SET_MODE', { mode: 'guided' })
-    if (sc) {
-      run('GUIDE', { guide: { id: sc.id, step: 0 } })
-      run('SET_ROLE', { role: sc.steps[0].role })
-      nav(sc.steps[0].page, sc.steps[0].params)
-    } else nav('scenarios')
+    if (sc) { if (!start(sc, auto)) nav('scenarios', { start: sc.id }) } else nav('scenarios')
   }
   return (
     <div className="start">
       <header className="start-hero">
         <div className="start-brand"><div className="brand-mark"><Icon name="FolderOpen" size={20} /></div><div><strong>MRD Suite</strong><small>{HOSPITAL.name} · prototype</small></div></div>
-        <h1>Medical records, from discharge to shelf — and back.</h1>
-        <p>Follow one patient file through ward handover, MRD receipt, document intake, quality check, coding, storage and retrieval. Every hospital system is simulated with fictitious data.</p>
+        <h1>Every patient file, from ward to archive — one connected record.</h1>
+        <p>Replaces the ward handover register, MRD inward register, deficiency chits and Excel trackers. Nurses send, MRD receives and reviews, clinicians correct, MRD verifies and archives — and anyone can see where a record is and who must act next. HMIS and scanners are simulated with fictitious data.</p>
       </header>
       <div className="start-body">
         <section className="start-col guided-col">
-          <div className="start-h"><span className="start-k">Option A</span><h2>Guided demo</h2><p>Short stories with a step-by-step guide. The app switches roles for you and confirms each step.</p></div>
+          <div className="start-h"><span className="start-k">Option A</span><h2>Guided demo</h2><p>Watch the workflow play automatically, or step through it yourself. Start with demo 1 — the complete journey with a rejected correction.</p></div>
           <ol className="start-scen">
             {SCENARIOS.map((sc) => (
-              <li key={sc.id}><button onClick={() => guided(sc)}><span className="ms-n">{sc.n}</span><span><strong>{sc.title}</strong><small>{sc.patient} · {[...new Set(sc.steps.map((x) => ROLES.find((r) => r.id === x.role).short))].join(' → ')}</small></span><Icon name="Play" size={14} /></button></li>
+              <li key={sc.id}><button onClick={() => guided(sc, true)} title="Play automatically"><span className="ms-n">{sc.n}</span><span><strong>{sc.title}</strong><small>{sc.patient} · {[...new Set(sc.steps.map((x) => ROLES.find((r) => r.id === x.role).short))].join(' → ')}</small></span><Icon name="Play" size={14} /></button></li>
             ))}
           </ol>
           <Button variant="accent" icon="CirclePlay" onClick={() => guided()}>See all scenarios with details</Button>

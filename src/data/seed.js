@@ -1,7 +1,7 @@
 // Seeded, fictitious demo data. No real patients. Timestamps are relative to the demo clock start.
-import { DEFAULT_CONFIG, docType } from './catalog'
+import { DEFAULT_CONFIG, docType, checklistTypes, WF } from './catalog'
 
-export const DEMO_START = Date.parse('2026-10-21T05:00:00Z') // 21 Oct 2026, 10:30 IST
+export const DEMO_START = Date.parse('2026-11-04T05:00:00Z') // 4 Nov 2026, 10:30 IST
 const H = 3600000
 const t = (h) => DEMO_START + h * H
 
@@ -19,8 +19,26 @@ export function buildSeed() {
   const escalations = []
   const audit = []
 
-  const log = (at, by, role, action, e, ref = '', remarks = '') =>
-    audit.push({ id: id('A'), at, by, role, action, uhid: e?.uhid || '', ip: e?.ip || '', ref, remarks })
+  const log = (at, by, role, action, e, ref = '', remarks = '', extra = {}) =>
+    audit.push({ id: id('A'), at, by, role, action, uhid: e?.uhid || '', ip: e?.ip || '', ref, remarks, ...extra })
+  // Workflow status change, always written to the record history with previous → new status
+  const st = (e, to, at, by, role, action, ref = '', remarks = '', assigned = '') => {
+    const from = e.status
+    e.status = to
+    e.statusAt = at
+    log(at, by, role, action, e, ref, remarks, { from, to, assigned })
+  }
+  const reviewAll = (e, at, by, issues = {}) => {
+    e.review = { items: Object.fromEntries(checklistTypes(e).map((tp) => [tp, issues[tp] || 'ok'])), startedAt: at - 0.5 * H, by, completedAt: at }
+  }
+  const DEF = (e, o) => {
+    const d = { id: `DF-${(deficiencies.length + 201)}`, ip: e.ip, uhid: e.uhid, status: 'Open', reopened: 0, corrections: [], history: [], ...o }
+    d.statusAt = d.statusAt || d.raisedAt
+    d.history.unshift({ at: d.raisedAt, by: d.raisedBy, from: null, to: 'Open', action: 'Deficiency raised', remarks: d.description, assigned: d.assignee.kind === 'ward' ? `${d.assignee.ward} nursing` : d.assignee.name })
+    deficiencies.push(d)
+    log(d.raisedAt, d.raisedBy, 'qc', 'Deficiency raised', e, d.id, d.title, { assigned: d.assignee.kind === 'ward' ? `${d.assignee.ward} nursing` : d.assignee.name })
+    return d
+  }
 
   const P = (uhid, name, age, sex, phone) => {
     const p = { uhid, name, age, sex, phone }
@@ -30,11 +48,13 @@ export function buildSeed() {
   const E = (o) => {
     const e = {
       ward: '', bed: '', consultant: '', procedure: 'none', dischargeType: 'Normal', diagnosis: '',
-      discharged: null, handover: null, record: { status: 'Open' }, coding: { status: 'Pending', codes: [] }, fileId: null, ...o,
+      discharged: null, handover: null, handovers: [], review: null, record: { status: 'Open' }, coding: { status: 'Pending', codes: [] }, fileId: null, ...o,
     }
+    e.status = WF.ADMITTED
+    e.statusAt = e.admitted
     encounters.push(e)
-    log(e.admitted, 'HIS (ADT feed – simulated)', 'system', 'Patient admitted', e, e.ip, `${e.ward}, Bed ${e.bed}`)
-    if (e.discharged) log(e.discharged, 'HIS (ADT feed – simulated)', 'system', 'Discharge event received', e, e.ip, `${e.dischargeType} discharge`)
+    log(e.admitted, 'HIS (ADT feed – simulated)', 'system', 'Patient admitted', e, e.ip, `${e.ward}, Bed ${e.bed}`, { to: WF.ADMITTED })
+    if (e.discharged) st(e, WF.NOT_SENT, e.discharged, 'HIS (ADT feed – simulated)', 'system', 'Discharge event received', e.ip, `${e.dischargeType} discharge · record preparation started`, `${e.ward} nursing`)
     return e
   }
   const pages = (k, defects = {}) => Array.from({ length: k }, (_, i) => ({ n: i + 1, defect: defects[i + 1] || null, rot: defects[i + 1] === 'rotated' ? 90 : 0, mark: null }))
@@ -59,16 +79,20 @@ export function buildSeed() {
     files.push(f)
     return f
   }
-  const handover = (e, at, by, items, missing = [], remarks = '', status = 'Submitted') => {
-    e.handover = { ref: `HO-26-${(1800 + encounters.indexOf(e)).toString()}`, at, by, items, electronic: [], missing, remarks, status, receivedAt: null, receivedBy: null, check: null }
-    log(at, by, 'nurse', 'Records handed over to MRD', e, e.handover.ref, `${items.length} physical item(s)${missing.length ? `; missing: ${missing.map((m) => docType(m).name).join(', ')}` : ''}`)
+  const handover = (e, at, by, items, missing = [], remarks = '', exception = null) => {
+    e.handover = { ref: `HO-26-${(1800 + encounters.indexOf(e)).toString()}`, version: 1, at, by, items, electronic: documents.filter((d) => d.ip === e.ip && d.kind === 'electronic').map((d) => d.id), missing, remarks, exception, carrier: 'Ward attendant', status: 'Submitted', receivedAt: null, receivedBy: null, check: null }
+    st(e, WF.AWAIT_RECEIPT, at, by, 'nurse', 'Handover sent to MRD', e.handover.ref, `${items.length} physical item(s)${missing.length ? `; missing: ${missing.map((m) => docType(m).name).join(', ')}` : ''}${exception ? ` · exception authorized by ${exception.authorizedBy}` : ''}`, 'MRD Receiving')
+    const f = files.find((x) => x.id === e.fileId)
+    if (f) f.custodian = 'In transit to MRD'
   }
   const receive = (e, at, by = 'Ramesh Kadam') => {
     e.handover.status = 'Received'
     e.handover.receivedAt = at
     e.handover.receivedBy = by
-    e.handover.check = { identity: true, inventory: true, condition: 'Good' }
-    log(at, by, 'receiving', 'Physical file received & verified', e, e.handover.ref, 'Identity, inventory and condition verified')
+    e.handover.check = { identity: true, inventory: true, condition: 'Good', notReceived: [] }
+    const f = files.find((x) => x.id === e.fileId)
+    if (f) { f.status = 'In Processing'; f.custodian = 'MRD review desk' }
+    st(e, WF.AWAIT_REVIEW, at, by, 'receiving', 'Receipt acknowledged at MRD counter', e.handover.ref, 'Identity, inventory and condition verified', 'MRD Reviewer')
   }
   const items = (...types) => types.map((tp) => ({ type: tp, pages: docType(tp).pages || 2 }))
 
@@ -102,7 +126,7 @@ export function buildSeed() {
   const e5 = E({ ip: 'IP/26/10433', uhid: 'UH-26-004433', dept: 'General Surgery', ward: 'Ward 5A Surgical', bed: '521', consultant: 'Dr. Sameer Joshi', admitted: t(-70), discharged: t(-6), procedure: 'surgery', diagnosis: 'Acute appendicitis; laparoscopic appendicectomy.' })
   ED(e5, 'DS', t(-6.5)); ED(e5, 'IA', t(-69)); ED(e5, 'LAB', t(-68)); ED(e5, 'RAD', t(-68.5))
   F(e5, 'In Transit', null)
-  handover(e5, t(-1.8), 'Sr. Anjali Pawar', items('NN', 'MAR', 'PN', 'GC', 'SC', 'AC', 'OP'), ['AR'], 'Anaesthesia record retained by OT for counter-signature; will be sent separately.')
+  handover(e5, t(-1.8), 'Sr. Kavita Jadhav', items('NN', 'MAR', 'PN', 'GC', 'SC', 'AC', 'OP'), ['AR'], 'Anaesthesia record retained by OT for counter-signature; will be sent separately.', { reason: 'Document retained by OT for counter-signature', authorizedBy: 'Sr. Rekha More (Nursing Supervisor)' })
 
   // ───────────── 4. Received, awaiting scanning (Scenario 3 = Priya Deshmukh)
   P('UH-26-004601', 'Priya Deshmukh', 29, 'F', '98922 61530')
@@ -163,9 +187,9 @@ export function buildSeed() {
   handover(e11, t(-60), 'Sr. Anjali Pawar', items('NN', 'MAR', 'PN', 'TPR'), ['GC'], 'General consent form not found in file at discharge.')
   receive(e11, t(-58))
   ;['NN', 'MAR', 'PN', 'TPR'].forEach((tp) => SD(e11, tp, 'Approved', {}, { receivedAt: t(-40), by: 'Pooja Shinde' }))
-  e11.record = { status: 'Pending Review', since: t(-30) }
-  e11.coding = { status: 'Pending', codes: [] }
-  log(t(-30), 'Farhan Shaikh', 'qc', 'All scanned documents QC approved', e11, e11.ip)
+  reviewAll(e11, t(-30), 'Farhan Shaikh', { GC: 'issue' })
+  DEF(e11, { category: 'missing', docType: 'GC', title: 'General consent form not in file', description: 'Signed general consent for admission is missing. Please trace the original or document why it is unavailable.', assignee: { kind: 'user', name: 'Dr. Arvind Menon' }, raisedBy: 'Farhan Shaikh', raisedAt: t(-30), dueAt: t(18) })
+  st(e11, WF.CORRECTIONS, t(-30), 'Farhan Shaikh', 'qc', 'Review completed – corrections required', e11.ip, '1 deficiency raised', 'Dr. Arvind Menon')
 
   P('UH-26-003655', 'Sanjay Joshi', 52, 'M', '98330 12876')
   const e12 = E({ ip: 'IP/26/10318', uhid: 'UH-26-003655', dept: 'Orthopaedics', ward: 'Ward 6C Ortho', bed: '611', consultant: 'Dr. Nitin Bhave', admitted: t(-210), discharged: t(-96), procedure: 'surgery', diagnosis: 'Closed fracture shaft of tibia (right); ORIF with intramedullary nail.' })
@@ -174,32 +198,45 @@ export function buildSeed() {
   handover(e12, t(-80), 'Sr. Kavita Jadhav', items('NN', 'MAR', 'PN', 'GC', 'SC', 'AC', 'OP', 'AR'))
   receive(e12, t(-78))
   ;['NN', 'MAR', 'PN', 'GC', 'SC', 'AC', 'OP', 'AR'].forEach((tp) => SD(e12, tp, 'Approved', {}, { receivedAt: t(-60), by: 'Pooja Shinde' }))
-  e12.record = { status: 'Pending Review', since: t(-50) }
+  reviewAll(e12, t(-50), "Rina D'Costa", { NN: 'issue' })
+  const d12 = DEF(e12, { category: 'signature', docType: 'NN', title: 'Post-op nursing notes not countersigned', description: 'Nursing notes for 28–29 Oct (post-op day 0–1) lack the nurse-in-charge countersignature.', assignee: { kind: 'ward', ward: 'Ward 6C Ortho' }, raisedBy: "Rina D'Costa", raisedAt: t(-50), dueAt: t(-2) })
+  st(e12, WF.CORRECTIONS, t(-50), "Rina D'Costa", 'qc', 'Review completed – corrections required', e12.ip, '1 deficiency raised', 'Ward 6C Ortho nursing')
+  d12.corrections.push({ at: t(-4), by: 'Sr. Kavita Jadhav', note: 'Countersigned by nurse-in-charge Sr. Leena Patil on all post-op pages; corrected pages rescanned.' })
+  d12.status = 'Correction Submitted'; d12.statusAt = t(-4)
+  d12.history.push({ at: t(-4), by: 'Sr. Kavita Jadhav', from: 'Open', to: 'Correction Submitted', action: 'Correction submitted', remarks: d12.corrections[0].note })
+  log(t(-4), 'Sr. Kavita Jadhav', 'nurse', 'Correction submitted', e12, d12.id, d12.corrections[0].note)
+  st(e12, WF.AWAIT_VERIFY, t(-4), 'System', 'system', 'All corrections submitted – awaiting MRD verification', e12.ip, '', 'MRD Reviewer')
 
   // ───────────── 8. Coded & closed, awaiting storage location (Scenario 6 = Deepa Nair)
   P('UH-26-003590', 'Deepa Nair', 36, 'F', '98211 70345')
   const e13 = E({ ip: 'IP/26/10301', uhid: 'UH-26-003590', dept: 'Obstetrics & Gynaecology', ward: 'Ward 4B Maternity', bed: '402', consultant: 'Dr. Rekha Pillai', admitted: t(-260), discharged: t(-150), procedure: 'delivery', diagnosis: 'Term pregnancy, previous LSCS; repeat LSCS, single live birth.' })
   ED(e13, 'DS', t(-151)); ED(e13, 'IA', t(-259)); ED(e13, 'LAB', t(-255))
-  F(e13, 'Awaiting Storage', null)
+  F(e13, 'In Processing', null)
   handover(e13, t(-140), 'Sr. Kavita Jadhav', items('NN', 'MAR', 'PN', 'GC', 'SC', 'PG'))
   receive(e13, t(-138))
   ;['NN', 'MAR', 'PN', 'GC', 'SC', 'PG'].forEach((tp) => SD(e13, tp, 'Approved', {}, { receivedAt: t(-120), by: 'Pooja Shinde' }))
   e13.coding = { status: 'Coded', codes: [{ code: 'O82', desc: 'Single delivery by caesarean section', kind: 'Principal' }], coder: 'Meera Iyer', at: t(-8) }
-  e13.record = { status: 'Closed', closedBy: 'Meera Iyer', closedAt: t(-7.5) }
   log(t(-8), 'Meera Iyer', 'executive', 'ICD coding completed', e13, 'O82')
-  log(t(-7.5), 'Meera Iyer', 'executive', 'Record marked complete & closed', e13, e13.ip)
+  reviewAll(e13, t(-7.5), 'Farhan Shaikh')
+  st(e13, WF.READY, t(-7.5), 'Farhan Shaikh', 'qc', 'Review completed – no deficiencies', e13.ip, 'All checklist items verified', 'MRD Records Officer')
 
   // ───────────── 9. Stored, closed historical records used for requests
   const closedEnc = (uhid, name, age, sex, ip, dept, consultant, dx, code, desc, disH, loc, fileExtra = {}) => {
     P(uhid, name, age, sex, `98${Math.floor(100 + age * 7)} ${Math.floor(10000 + age * 913) % 90000 + 10000}`)
     const e = E({ ip, uhid, dept, ward: dept === 'Cardiology' ? 'Ward 7B Cardiac' : 'Ward 8A Medical', bed: `${700 + (age % 30)}`, consultant, admitted: t(disH - 120), discharged: t(disH), diagnosis: dx })
     ED(e, 'DS', t(disH - 1)); ED(e, 'IA', t(disH - 119)); ED(e, 'LAB', t(disH - 110))
-    F(e, 'Available', loc, fileExtra)
-    e.handover = { ref: `HO-26-${1200 + encounters.length}`, at: t(disH + 6), by: 'Sr. Kavita Jadhav', items: items('NN', 'MAR', 'PN', 'GC'), electronic: [], missing: [], remarks: '', status: 'Received', receivedAt: t(disH + 8), receivedBy: 'Ramesh Kadam', check: { identity: true, inventory: true, condition: 'Good' } }
+    F(e, 'In Transit', null, fileExtra)
+    handover(e, t(disH + 6), 'Sr. Kavita Jadhav', items('NN', 'MAR', 'PN', 'GC'))
+    receive(e, t(disH + 8))
     ;['NN', 'MAR', 'PN', 'GC'].forEach((tp) => SD(e, tp, 'Approved', {}, { receivedAt: t(disH + 20), by: 'Pooja Shinde' }))
+    reviewAll(e, t(disH + 30), 'Farhan Shaikh')
+    st(e, WF.READY, t(disH + 30), 'Farhan Shaikh', 'qc', 'Review completed – no deficiencies', e.ip, '', 'MRD Records Officer')
     e.coding = { status: 'Coded', codes: [{ code, desc, kind: 'Principal' }], coder: 'Meera Iyer', at: t(disH + 40) }
     e.record = { status: 'Closed', closedBy: 'Meera Iyer', closedAt: t(disH + 41) }
-    log(t(disH + 42), 'Meera Iyer', 'executive', 'File stored', e, e.fileId, `Location ${loc.room}-${loc.rack}-${loc.shelf}-${loc.pos}`)
+    const f = files.find((x) => x.id === e.fileId)
+    Object.assign(f, { status: 'Available', location: loc, custodian: 'MRD' })
+    e.acceptance = { at: t(disH + 42), by: 'Meera Iyer', location: loc, digital: 'Fully digitized' }
+    st(e, WF.ARCHIVED, t(disH + 42), 'Meera Iyer', 'executive', 'Record accepted & archived', e.fileId, `Location ${loc.room}-${loc.rack}-${loc.shelf}-${loc.pos}`)
     return e
   }
 
@@ -277,7 +314,7 @@ export function buildSeed() {
     const ip = `IP/26/0${(2000 + i * 83).toString()}`
     const disH = -(600 + i * 70)
     patients.push({ uhid, name, age, sex: i % 2 ? 'M' : 'F', phone: '—' })
-    const e = { ip, uhid, dept, ward: '—', bed: '—', consultant: '—', procedure: 'none', dischargeType: 'Normal', diagnosis: desc, admitted: t(disH - 96), discharged: t(disH), handover: { ref: `HO-26-${(900 + i)}`, at: t(disH + 5), by: 'Ward staff', items: items('NN', 'MAR', 'PN', 'GC'), electronic: [], missing: [], remarks: '', status: 'Received', receivedAt: t(disH + 7), receivedBy: 'Ramesh Kadam', check: { identity: true, inventory: true, condition: 'Good' } }, record: { status: 'Closed', closedBy: 'Meera Iyer', closedAt: t(disH + 50) }, coding: { status: 'Coded', codes: [{ code, desc, kind: 'Principal' }], coder: 'Meera Iyer', at: t(disH + 48) }, fileId: `PF-${ip.split('/').pop()}-V1`, archive: true }
+    const e = { ip, uhid, dept, ward: '—', bed: '—', consultant: '—', procedure: 'none', dischargeType: 'Normal', diagnosis: desc, admitted: t(disH - 96), discharged: t(disH), handover: { ref: `HO-26-${(900 + i)}`, at: t(disH + 5), by: 'Ward staff', items: items('NN', 'MAR', 'PN', 'GC'), electronic: [], missing: [], remarks: '', status: 'Received', receivedAt: t(disH + 7), receivedBy: 'Ramesh Kadam', check: { identity: true, inventory: true, condition: 'Good' } }, record: { status: 'Closed', closedBy: 'Meera Iyer', closedAt: t(disH + 50) }, coding: { status: 'Coded', codes: [{ code, desc, kind: 'Principal' }], coder: 'Meera Iyer', at: t(disH + 48) }, fileId: `PF-${ip.split('/').pop()}-V1`, archive: true, status: WF.ARCHIVED, statusAt: t(disH + 50), handovers: [], review: null, acceptance: { at: t(disH + 50), by: 'Meera Iyer', location: loc } }
     encounters.push(e)
     files.push({ id: e.fileId, ip, uhid, volume: 1, status: i === 9 ? 'Missing' : 'Available', location: loc, custodian: 'MRD', issue: null, history: [] })
   }
@@ -289,7 +326,7 @@ export function buildSeed() {
   audit.sort((a, b) => a.at - b.at)
 
   return {
-    version: 4,
+    version: 5,
     now: DEMO_START,
     role: 'supervisor',
     userId: 'u-sunita',

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import * as I from './icons'
 import { useStore } from '../store'
-import { fmtDT, fmtDur, patientOf, stageOf } from '../lib/logic'
+import { fmtDT, fmtDur, fmtShort, patientOf, statusOf } from '../lib/logic'
 
 export const Icon = ({ name, size = 16, ...r }) => {
   const C = I[name] || I.Circle
@@ -9,11 +10,11 @@ export const Icon = ({ name, size = 16, ...r }) => {
 }
 
 const TONES = {
-  ok: ['Approved', 'Filed', 'Available', 'Received', 'Closed', 'Completed', 'Resolved', 'Accepted', 'Coded', 'Complete', 'Matched', 'Manually linked', 'Clear', 'present', 'Closed & stored', 'Good'],
-  info: ['Submitted', 'In Processing', 'QC Pending', 'Pending Review', 'In Progress', 'Issued', 'Released', 'Return Submitted', 'Return Pending', 'Acknowledged', 'Awaiting Storage', 'In Transit', 'Responded', 'Requested', 'Pending', 'processing', 'Awaiting MRD receipt', 'Awaiting QC', 'Awaiting coding & completeness', 'Complete – ready to close', 'Awaiting storage location', 'Awaiting scanning'],
-  warn: ['Awaiting Scan', 'On Hold', 'Incomplete', 'Open', 'Awaiting ward handover', 'Incomplete – deficiency open', 'Minor wear', 'Routine', 'L1 · MRD Supervisor', 'Urgent', 'Unclear'],
-  bad: ['Overdue', 'QC Rejected', 'Rejected', 'Missing', 'missing', 'Damaged', 'Discrepancy', 'Exception', 'Unmatched', 'Unclassified', 'Rescan required', 'L2 · Medical Superintendent', 'Emergency', 'Late Entry', 'Incomplete page', 'Blank', 'Wrong orientation', 'Wrong patient', 'Damaged / torn pages', 'Water damaged'],
-  mute: ['Waived', 'waived', 'Cancelled', 'Entered in Error', 'Admitted', 'Returned to source', 'With Ward', 'Not created'],
+  ok: ['Ready for Acceptance', 'Accepted & Archived', 'Verified', 'Fully digitized', 'Approved', 'Filed', 'Available', 'Received', 'Closed', 'Completed', 'Resolved', 'Accepted', 'Coded', 'Complete', 'Matched', 'Manually linked', 'Clear', 'present', 'Closed & stored', 'Good'],
+  info: ['Awaiting Receipt', 'Awaiting Review', 'Awaiting Verification', 'Correction Submitted', 'Sent', 'Scan QC pending', 'Partly digitized', 'Submitted', 'In Processing', 'QC Pending', 'Pending Review', 'In Progress', 'Issued', 'Released', 'Return Submitted', 'Return Pending', 'Acknowledged', 'Awaiting Storage', 'In Transit', 'Responded', 'Requested', 'Pending', 'processing', 'Awaiting MRD receipt', 'Awaiting QC', 'Awaiting coding & completeness', 'Complete – ready to close', 'Awaiting storage location', 'Awaiting scanning'],
+  warn: ['Not Sent', 'Corrections Required', 'With ward', 'Not scanned', 'Not digitized', 'Draft saved', 'Awaiting Scan', 'On Hold', 'Incomplete', 'Open', 'Awaiting ward handover', 'Incomplete – deficiency open', 'Minor wear', 'Routine', 'L1 · MRD Supervisor', 'Urgent', 'Unclear'],
+  bad: ['Returned to Ward', 'Not received', 'Not received from HMIS', 'Escalated', 'Reopened', 'Overdue', 'QC Rejected', 'Rejected', 'Missing', 'missing', 'Damaged', 'Discrepancy', 'Exception', 'Unmatched', 'Unclassified', 'Rescan required', 'L2 · Medical Superintendent', 'Emergency', 'Late Entry', 'Incomplete page', 'Blank', 'Wrong orientation', 'Wrong patient', 'Damaged / torn pages', 'Water damaged'],
+  mute: ['n/a', 'Waived', 'waived', 'Cancelled', 'Entered in Error', 'Admitted', 'Returned to source', 'With Ward', 'Not created'],
 }
 export const toneOf = (v) => Object.keys(TONES).find((k) => TONES[k].includes(v)) || 'info'
 
@@ -43,7 +44,7 @@ export function Modal({ open, onClose, title, subtitle, children, footer, wide, 
     return () => { document.removeEventListener('keydown', onKey); prev?.focus?.() }
   }, [open, onClose])
   if (!open) return null
-  return (
+  return createPortal(
     <div className={`overlay ${side ? 'overlay-side' : ''}`} onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
       <div ref={ref} className={`modal ${wide ? 'modal-wide' : ''} ${side ? 'modal-side' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
         <header className="modal-head">
@@ -53,7 +54,8 @@ export function Modal({ open, onClose, title, subtitle, children, footer, wide, 
         <div className="modal-body">{children}</div>
         {footer && <footer className="modal-foot">{footer}</footer>}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -146,30 +148,34 @@ export function Mono({ children }) { return <span className="mono">{children}</s
 
 // Patient identity banner (BR-03) — stays visible during patient-specific workflows
 export function PatientBanner({ ip, compact, actions }) {
-  const { s, nav } = useStore()
+  const { s, openTrack } = useStore()
   const e = s.encounters.find((x) => x.ip === ip)
   if (!e) return null
   const p = patientOf(s, e.uhid)
-  const st = stageOf(s, e)
   return (
     <div className={`pbanner ${compact ? 'compact' : ''}`}>
       <div className="pb-avatar" aria-hidden>{p.name.split(' ').map((x) => x[0]).slice(0, 2).join('')}</div>
       <div className="pb-main">
         <div className="pb-name">
-          <button className="linklike" onClick={() => nav('patient', { ip })}>{p.name}</button>
+          <button className="linklike" onClick={() => openTrack(ip)} title="Open record lifecycle">{p.name}</button>
           <span className="pb-as">{p.age} y · {p.sex === 'M' ? 'Male' : 'Female'}</span>
-          <Badge>{st.label}</Badge>
+          <Badge>{statusOf(e)}</Badge>
+          {e.escalated && statusOf(e) !== 'Accepted & Archived' && <Badge tone="bad">Escalated</Badge>}
         </div>
         <div className="pb-ids">
           <span><em>UHID</em><Mono>{e.uhid}</Mono></span>
           <span><em>IP No.</em><Mono>{e.ip}</Mono></span>
+          <span><em>Ward</em>{e.ward}</span>
           <span><em>Dept</em>{e.dept}</span>
           {!compact && <span><em>Consultant</em>{e.consultant}</span>}
           <span><em>Admitted</em>{fmtDT(e.admitted).split(',')[0]}</span>
           <span><em>Discharged</em>{e.discharged ? fmtDT(e.discharged) : '— (admitted)'}</span>
         </div>
       </div>
-      {actions && <div className="pb-actions">{actions}</div>}
+      <div className="pb-actions">
+        <Button size="sm" variant="ghost" icon="Route" onClick={() => openTrack(ip)}>Lifecycle</Button>
+        {actions}
+      </div>
     </div>
   )
 }
@@ -196,8 +202,10 @@ export function Timeline({ items }) {
           <div className="tl-dot" data-role={a.role} />
           <div className="tl-body">
             <div className="tl-top"><strong>{a.action}</strong><time>{fmtDT(a.at)}</time></div>
-            <div className="tl-meta"><Icon name="User" size={12} />{a.by}{a.ref && <><span className="sep">·</span><Mono>{a.ref}</Mono></>}</div>
+            <div className="tl-meta"><Icon name="User" size={12} />{a.by}{a.role && a.role !== 'system' && <span className="muted"> ({a.role === 'qc' ? 'reviewer' : a.role === 'requester' ? 'doctor' : a.role})</span>}{a.ref && <><span className="sep">·</span><Mono>{a.ref}</Mono></>}</div>
+            {(a.to && a.from !== a.to) && <div className="tl-status">{a.from ? <Badge dot={false}>{a.from}</Badge> : <span className="muted small">new</span>}<Icon name="ArrowRight" size={12} /><Badge>{a.to}</Badge></div>}
             {a.remarks && <div className="tl-rem">{a.remarks}</div>}
+            {a.assigned && <div className="tl-assign"><Icon name="CornerDownRight" size={12} />Next: {a.assigned}</div>}
           </div>
         </li>
       ))}
@@ -244,3 +252,40 @@ export function MobileBack() {
   const tab = s.route?.params?.tab
   return <button className="mobile-back" onClick={() => nav(s.route.page, tab ? { tab } : {})}><Icon name="ArrowLeft" size={15} /> Back to list</button>
 }
+
+// How long something has been pending, against the simulated clock
+export function Pending({ since, now }) {
+  if (!since) return <span className="muted">—</span>
+  const d = now - since
+  return <span className={`pending ${d > 24 * 3600000 ? 'long' : ''}`} title={`Since ${fmtDT(since)}`}><Icon name="Clock" size={12} />{fmtDur(d)}</span>
+}
+
+// Task worklist: what is pending · who is responsible · next action · how long — one primary action per row
+export function TaskList({ items, empty, compact }) {
+  const { s, nav, openTrack } = useStore()
+  if (!items.length) return empty || <Empty icon="CircleCheck" title="Nothing pending" />
+  return (
+    <ul className={`tasklist ${compact ? 'compact' : ''}`}>
+      {items.map((t) => {
+        const p = patientOf(s, t.uhid)
+        const late = t.due && s.now > t.due
+        return (
+          <li key={t.key} className={`task-row ${late ? 'late' : ''}`}>
+            <button className="tr-pt" onClick={() => openTrack(t.ip)} title="Open record lifecycle">
+              <span className="tr-av">{p?.name.split(' ').map((x) => x[0]).slice(0, 2).join('')}</span>
+              <span><strong>{p?.name}</strong><small><Mono>{t.ip}</Mono> · {t.ward}</small></span>
+            </button>
+            <div className="tr-what"><small>Pending</small><span>{t.what}</span></div>
+            <div className="tr-who"><small>Responsible</small><span>{t.responsible}</span></div>
+            <div className="tr-age"><small>Waiting</small><Pending since={t.since} now={s.now} />{t.due && <Tat due={t.due} now={s.now} />}</div>
+            <div className="tr-act"><Button variant="primary" size="sm" icon="ArrowRight" onClick={() => nav(t.page, t.params)}>{t.action}</Button></div>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+export function Drawer(props) { return <Modal side {...props} /> }
+
+export const fmtWhen = fmtShort

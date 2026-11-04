@@ -402,7 +402,7 @@ function Review({ b, placeholders, untagged, goto }) {
         <div className="success-big"><Icon name="CircleCheck" size={32} /><div><small>Batch {b.id} · {fmtDT(b.submittedAt)}</small><strong>{docs.length} document(s) filed to {patientOf(s, b.uhid)?.name}’s record</strong></div></div>
         <Table rows={docs} cols={[{ label: 'Document', render: (d) => <span><strong>{docType(d.type).name}</strong><small className="block muted"><Mono>{d.id}</Mono></small></span> }, { label: 'Folder', render: (d) => d.folder }, { label: 'Pages', render: (d) => d.pages.length }, { label: 'Tags', render: (d) => <small>{(d.tags || []).join(', ') || '—'}</small> }, { label: 'Status', render: (d) => <Badge>{d.status}</Badge> }]} />
         <div className="row-end wrap">
-          <Button icon="Eye" onClick={() => nav('patient', { ip: b.ip, tab: 'docs' })}>Patient 360°</Button>
+          <Button icon="Eye" onClick={() => nav('tracking', { ip: b.ip })}>Record lifecycle</Button>
           {canAccess(s.role, 'qc') && <Button variant="primary" icon="ShieldCheck" onClick={() => nav('qc', { ip: b.ip })}>Open in QC</Button>}
           <Button onClick={() => nav('intake', {})}>Next file</Button>
         </div>

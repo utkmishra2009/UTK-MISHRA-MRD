@@ -59,7 +59,7 @@ export default function Scanning() {
         </div>
       )}
       {tab === 'done' && (
-        <Table rows={done} onRow={(d) => nav('patient', { ip: d.ip, tab: 'docs' })}
+        <Table rows={done} onRow={(d) => nav('tracking', { ip: d.ip })}
           cols={[
             { label: 'Scanned', render: (d) => fmtShort(d.receivedAt) },
             { label: 'Document', render: (d) => <span>{docType(d.type).name}{d.version > 1 && <Badge tone="warn">r{d.version}</Badge>}</span> },

@@ -1,18 +1,10 @@
 import { useState } from 'react'
 import { useStore } from '../store'
 import { STORAGE, locLabel, locKey } from '../data/catalog'
-import { fileStatus, fmtDT, patientOf, encOf } from '../lib/logic'
+import { fileStatus, fmtDT, patientOf, encOf, freeSlot } from '../lib/logic'
 import { PageHead, Table, Badge, Mono, Empty, PatientBanner, Card, Button, Field, Icon, Hint, SearchBox, Modal, Tabs } from '../components/ui'
 
-export function freeSlot(s, room = 'A') {
-  const used = new Set(s.files.filter((f) => f.location).map((f) => locKey(f.location)))
-  const r = STORAGE.rooms.find((x) => x.id === room)
-  for (let rack = 1; rack <= r.racks; rack++) for (let shelf = 1; shelf <= STORAGE.shelves; shelf++) for (let pos = 1; pos <= STORAGE.positions; pos++) {
-    const l = { room, rack, shelf, pos }
-    if (!used.has(locKey(l))) return l
-  }
-  return null
-}
+export { freeSlot }
 
 export function LocationTrail({ loc, status }) {
   if (!loc) return <div className="trail trail-none"><Icon name="MapPin" size={15} /> No storage position assigned yet</div>
@@ -127,7 +119,7 @@ function FilePanel({ f, target, setTarget }) {
         {!needs && !moving && f.status === 'Available' && <Button size="sm" icon="Route" onClick={() => { setMoving(true); setTarget(null) }}>Move</Button>}
         {['Available', 'Issued'].includes(f.status) && <Button size="sm" icon="PackageX" onClick={() => setMiss(true)}>Mark missing</Button>}
         {['Missing', 'Damaged'].includes(f.status) && <Button size="sm" variant="primary" icon="PackageCheck" onClick={() => run('FILE_STATUS', { id: f.id, status: 'Available', reason: f.status === 'Missing' ? 'File traced and returned to position' : 'Repaired / pages secured' }, 'File restored to Available')}>{f.status === 'Missing' ? 'Mark found' : 'Mark repaired'}</Button>}
-        {e && <Button size="sm" icon="Eye" onClick={() => nav('patient', { ip: e.ip, tab: 'file' })}>Patient 360°</Button>}
+        {e && <Button size="sm" icon="Eye" onClick={() => nav('tracking', { ip: e.ip })}>Record lifecycle</Button>}
       </div>
       {f.history.length > 0 && <><h4 className="list-h">Movement history</h4><ul className="hist">{f.history.slice().reverse().map((h, i) => <li key={i}>{fmtDT(h.at)} · {h.by} — {h.action}</li>)}</ul></>}
       <Modal open={miss} onClose={() => setMiss(false)} title="Mark file missing" subtitle="Raises an incident for the MRD supervisor; the digital copy remains available."

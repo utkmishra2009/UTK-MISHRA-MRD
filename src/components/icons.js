@@ -5,5 +5,5 @@ export {
   Info, RefreshCw, Menu, Bell, Download, Lock, Package, Truck, Building2, Hospital, Stethoscope, BadgeCheck, Circle, CircleX,
   CircleHelp, Sparkles, Activity, Layers, BookOpen, Undo2, FastForward, Play, ListChecks, Tag, Scan, ImageOff, Replace, Lightbulb,
   Gauge, ArrowUpRight, Filter, Database, Link2, MessageSquare, Calendar, ArrowLeft, Workflow, Route, Boxes, ScrollText, Monitor,
-  Fingerprint, PackageCheck, PackageX, FileWarning, FileScan, FileX, FileClock, LogOut, Pencil, Save, Ban, Pause, MoveRight,
+  Fingerprint, PackageCheck, PackageX, FileWarning, FileScan, FileX, FileClock, LogOut, Pencil, Save, Ban, Pause, MoveRight, CornerDownRight, Minus, Printer, PenLine, Ellipsis, SkipForward, SkipBack, RotateCcw, Square, Hand, Signature, ClipboardCheck, CheckCheck, Repeat, ShieldAlert,
 } from 'lucide-react'

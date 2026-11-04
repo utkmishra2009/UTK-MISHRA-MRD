@@ -1,44 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useStore } from '../store'
-import { DEPARTMENTS, ROLES } from '../data/catalog'
+import { ROLES } from '../data/catalog'
 import { SCENARIOS } from '../data/scenarios'
-import { stageOf, patientOf, fmtShort, fmtDT, fileOf, fileStatus, searchRecords } from '../lib/logic'
-import { PageHead, Table, Badge, Mono, Empty, Card, Button, Field, Icon, Hint, SearchBox, Modal, Sim } from '../components/ui'
-
-export function Search() {
-  const { s, nav } = useStore()
-  const [q, setQ] = useState('')
-  const [dept, setDept] = useState('')
-  const [stage, setStage] = useState('')
-  const base = q.trim() ? searchRecords(s, q) : s.encounters.filter((e) => !e.archive)
-  const tooShort = q.trim() && q.trim().length < 3 && !/\d/.test(q)
-  const rows = tooShort ? [] : base.filter((e) => (!dept || e.dept === dept) && (!stage || stageOf(s, e).key === stage)).sort((a, b) => (b.discharged || b.admitted) - (a.discharged || a.admitted))
-  return (
-    <div className="page">
-      <PageHead kicker="Search & retrieval" title="Patient records" info="Search by patient name, UHID, IP number, file number or handover reference. Open any record to see its full lifecycle." />
-      <div className="filters">
-        <SearchBox value={q} onChange={setQ} placeholder="Name (min. 3 letters), UHID, IP no., file no., handover ref…" autoFocus />
-        <select value={dept} onChange={(e) => setDept(e.target.value)} aria-label="Department"><option value="">All departments</option>{DEPARTMENTS.slice(0, 9).map((d) => <option key={d}>{d}</option>)}</select>
-        <select value={stage} onChange={(e) => setStage(e.target.value)} aria-label="Lifecycle stage"><option value="">All stages</option>{[['admitted', 'Admitted'], ['handover', 'Awaiting handover'], ['receipt', 'Awaiting receipt'], ['scanning', 'Scanning'], ['qc', 'QC'], ['coding', 'Coding & completeness'], ['storage', 'Awaiting storage'], ['stored', 'Closed & stored']].map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
-      </div>
-      {tooShort && <p className="small muted">Name search needs at least 3 characters.</p>}
-      {rows.length > 200 ? <Empty title="Too many results. Please refine your search." /> : (
-        <Table rows={rows} rowKey={(e) => e.ip} onRow={(e) => nav('patient', { ip: e.ip })}
-          cols={[
-            { label: 'Patient', render: (e) => { const p = patientOf(s, e.uhid); return <div className="cell-pt"><strong>{p.name}</strong><small>{p.age} y · {p.sex} · <Mono>{e.uhid}</Mono></small></div> } },
-            { label: 'Admission', render: (e) => <span><Mono>{e.ip}</Mono><small className="block muted">{e.dept}</small></span> },
-            { label: 'Discharged', render: (e) => fmtShort(e.discharged) },
-            { label: 'Lifecycle', render: (e) => <Badge>{stageOf(s, e).label}</Badge> },
-            { label: 'Physical file', render: (e) => { const f = fileOf(s, e.fileId); return f ? <span><Badge>{fileStatus(s, f)}</Badge></span> : <span className="muted small">—</span> } },
-          ]} empty={<Empty icon="Search" title="No matching records">Check the UHID or spelling.</Empty>} />
-      )}
-      {!q && <Hint>Showing current-year working records. Type to also search the {s.encounters.filter((e) => e.archive).length} archived files in the MRD rooms.</Hint>}
-    </div>
-  )
-}
+import { patientOf, fmtDT } from '../lib/logic'
+import { useDemo } from '../components/Demo'
+import { PageHead, Table, Badge, Mono, Card, Button, Field, SearchBox, Modal, Sim } from '../components/ui'
 
 export function Audit() {
-  const { s, nav } = useStore()
+  const { s, openTrack } = useStore()
   const [q, setQ] = useState('')
   const [who, setWho] = useState('')
   const rows = s.audit.filter((a) => (!who || a.by === who) && (!q || [a.action, a.ref, a.ip, a.uhid, a.remarks, patientOf(s, a.uhid)?.name || ''].some((v) => v.toLowerCase().includes(q.toLowerCase())))).slice().reverse().slice(0, 300)
@@ -50,14 +19,14 @@ export function Audit() {
         <SearchBox value={q} onChange={setQ} placeholder="Search action, patient, reference…" />
         <select value={who} onChange={(e) => setWho(e.target.value)} aria-label="User"><option value="">All users & systems</option>{users.map((u) => <option key={u}>{u}</option>)}</select>
       </div>
-      <Table rows={rows} onRow={(a) => a.ip && nav('patient', { ip: a.ip, tab: 'timeline' })}
+      <Table rows={rows} onRow={(a) => a.ip && openTrack(a.ip)}
         cols={[
           { label: 'When', render: (a) => <span className="nowrap">{fmtDT(a.at)}</span> },
           { label: 'User', render: (a) => <span>{a.by}<small className="block muted">{a.role}</small></span> },
-          { label: 'Action', render: (a) => <strong>{a.action}</strong> },
+          { label: 'Action', render: (a) => <span><strong>{a.action}</strong>{a.to && a.from !== a.to && <small className="block muted">{a.from || 'new'} → {a.to}</small>}</span> },
           { label: 'Patient', render: (a) => (a.uhid ? <span>{patientOf(s, a.uhid)?.name}<small className="block"><Mono>{a.ip}</Mono></small></span> : '—') },
           { label: 'Ref', render: (a) => <Mono>{a.ref}</Mono> },
-          { label: 'Remarks', render: (a) => <small>{a.remarks}</small> },
+          { label: 'Remarks', render: (a) => <small>{a.remarks}{a.assigned && <span className="block muted">Next: {a.assigned}</span>}</small> },
         ]} />
     </div>
   )
@@ -86,9 +55,10 @@ export function Settings() {
             <F label="Ward handover after discharge" path="tat.handover" val={t.handover} />
             <F label="MRD receipt after handover" path="tat.receipt" val={t.receipt} />
             <F label="Scanning after receipt" path="tat.scanning" val={t.scanning} />
-            <F label="QC after scan" path="tat.qc" val={t.qc} />
-            <F label="Coding & completeness" path="tat.coding" val={t.coding} />
-            <F label="Deficiency default due" path="tat.deficiency" val={t.deficiency} />
+            <F label="Scan check after scan" path="tat.qc" val={t.qc} />
+            <F label="MRD review after receipt" path="tat.review" val={t.review} />
+            <F label="Deficiency correction (default)" path="tat.deficiency" val={t.deficiency} />
+            <F label="MRD verification of a correction" path="tat.verify" val={t.verify} />
             <F label="Physical file loan period" path="tat.returnPeriod" val={t.returnPeriod} />
             <F label="Electronic access window" path="tat.accessWindow" val={t.accessWindow} hint="PRD default 48 h" />
           </div>
@@ -120,10 +90,11 @@ export function Settings() {
             <ul className="bul">
               <li>HIS/ADT, EMR, LIS, RIS interfaces — seeded messages and “simulate” buttons only</li>
               <li>Scanner hardware and page images (generated sample pages)</li>
-              <li>Clinician responses to deficiencies; notifications</li>
+              <li>Electronic signatures on corrections (no e-sign / OTP provider connected); notifications</li>
+              <li>Approval of handover exceptions (recorded by the nurse; in production captured in the authorizer’s own login)</li>
               <li>ICD-10: a small demo catalogue with keyword suggestions — not a live lookup or automated coding</li>
               <li>QC is a human decision; no AI image-quality detection</li>
-              <li>No backend, login, e-signature or regulatory validation</li>
+              <li>No backend, login or regulatory validation. In production, audit logging, role-based access and status transitions must be enforced by the server, not only by this screen.</li>
             </ul>
           </div>
         </div>
@@ -131,8 +102,9 @@ export function Settings() {
         <ul className="bul small">
           <li>Physical file tracking is included in this demo although the developer requirements list it as Phase 2 (OQ-11). ICD coding likewise (OQ-12).</li>
           <li>Completeness checklist rules (procedure → consent + operative notes; surgery → anaesthesia consent & record; delivery → partograph; DAMA/Death forms) are illustrative (OQ-02).</li>
-          <li>Scanning and QC are shown as separate roles; the brief PRD merges them under “MRD Operator”.</li>
-          <li>TAT defaults are illustrative; PRD defaults kept where stated (48 h access window, 72 h coding).</li>
+          <li>Final acceptance is allowed while paper documents are still waiting to be scanned; the digital copy is tracked separately and shown on every record.</li>
+          <li>ICD coding is optional before acceptance and can be completed afterwards.</li>
+          <li>TAT defaults are illustrative and editable above.</li>
         </ul>
       </Card>
       <Modal open={confirm} onClose={() => setConfirm(false)} title="Reset demo data?" subtitle="All changes made in this browser are discarded and the seeded scenario data is restored."
@@ -143,41 +115,44 @@ export function Settings() {
 
 export function Scenarios() {
   const { s, run, nav } = useStore()
-  const start = (sc) => {
-    run('SET_MODE', { mode: 'guided' })
-    run('GUIDE', { guide: { id: sc.id, step: 0 } })
-    run('SET_ROLE', { role: sc.steps[0].role })
-    nav(sc.steps[0].page, sc.steps[0].params)
-  }
+  const { start } = useDemo()
+  const params = s.route.params || {}
+  const [blocked, setBlocked] = useState(null)
+  const begin = (sc, auto) => { if (!start(sc, auto)) setBlocked({ sc, auto }) }
+  useEffect(() => { if (params.start) { const sc = SCENARIOS.find((x) => x.id === params.start); if (sc) begin(sc, false) } }, [params.start])
   return (
     <div className="page">
-      <PageHead kicker="Guided demo" title="Eleven stories, one record lifecycle" info="Each scenario uses its own seeded patient, so they can be played in any order. Press Start — the guide panel tells you which role you are, what to do, and confirms when the step is done.">
+      <PageHead kicker="Guided demo" title="See the MRD workflow end to end" info="Each demo uses its own seeded patient and the same screens and actions as the product. Press Play to watch it run automatically, or Step through to do each step yourself. Pause, Resume, Previous, Next, Restart and Exit are in the demo panel.">
         <Button icon="RefreshCw" onClick={() => nav('settings')}>Reset data</Button>
       </PageHead>
-      <div className="journey" aria-hidden>
-        {['Discharge', 'Handover', 'Receipt', 'Intake & tag', 'QC', 'Code & complete', 'Store', 'Request', 'Issue & accept', 'Return'].map((x, i) => <span key={x}><b>{i + 1}</b>{x}</span>)}
+      <div className="journey neo-in" aria-hidden>
+        {['Discharge', 'Prepare & send', 'MRD receipt', 'Review & scan', 'Deficiency', 'Correction', 'Verification', 'Acceptance', 'Archive & tracking'].map((x, i) => <span key={x}><b>{i + 1}</b>{x}</span>)}
       </div>
       <div className="scen-grid">
         {SCENARIOS.map((sc) => {
-          const finished = sc.steps.filter((x) => x.done).every((x) => x.done(s))
+          const ready = sc.ready ? sc.ready(s) : true
           return (
-            <article key={sc.id} className="scen">
-              <header><span className="scen-n">{sc.n}</span><div><h3>{sc.title}</h3><small>Patient: {sc.patient}</small></div>{finished && <Badge tone="ok">Done</Badge>}</header>
+            <article key={sc.id} className={`scen ${sc.featured ? 'featured' : ''}`}>
+              <header><span className="scen-n">{sc.n}</span><div><h3>{sc.title}</h3><small>Patient: {sc.patient} · {sc.steps.length} steps</small></div>{!ready && <Badge tone="ok">Played</Badge>}</header>
               <dl>
                 <dt>Story</dt><dd>{sc.story}</dd>
-                <dt>Actor</dt><dd>{sc.actor}</dd>
+                <dt>Actors</dt><dd>{sc.actor}</dd>
                 <dt>Action</dt><dd>{sc.action}</dd>
-                <dt>Expected result</dt><dd>{sc.expected}</dd>
-                <dt>Business value</dt><dd className="val">{sc.value}</dd>
+                <dt>Result</dt><dd>{sc.expected}</dd>
+                <dt>Value</dt><dd className="val">{sc.value}</dd>
               </dl>
               <footer>
-                <span className="small muted">{sc.steps.length} steps · {[...new Set(sc.steps.map((x) => ROLES.find((r) => r.id === x.role).short))].join(' → ')}</span>
-                <Button variant={finished ? 'default' : 'primary'} icon="Play" onClick={() => start(sc)}>{finished ? 'Replay' : 'Start demo'}</Button>
+                <Button icon="Hand" onClick={() => begin(sc, false)}>Step through</Button>
+                <Button variant="primary" icon="Play" onClick={() => begin(sc, true)}>Play automatically</Button>
               </footer>
             </article>
           )
         })}
       </div>
+      <Modal open={!!blocked} onClose={() => setBlocked(null)} title="This demo has already been played" subtitle={blocked && `${blocked.sc.patient}’s record has moved on in the current data.`}
+        footer={<><Button onClick={() => setBlocked(null)}>Cancel</Button><Button variant="primary" icon="RefreshCw" onClick={() => { const b = blocked; run('RESET', {}, 'Demo data reset'); setBlocked(null); setTimeout(() => start(b.sc, b.auto), 0) }}>Reset demo data & start</Button></>}>
+        <p>To avoid duplicate or inconsistent records, a demo only starts from its patient’s original state. Resetting restores all seeded data (your other changes in this browser are discarded).</p>
+      </Modal>
     </div>
   )
 }
